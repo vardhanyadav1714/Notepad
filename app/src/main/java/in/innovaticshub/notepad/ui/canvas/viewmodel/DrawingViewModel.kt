@@ -299,6 +299,14 @@ class DrawingViewModel : ViewModel() {
                     }
                 }
             },
+            onConnected = {
+                _uiState.update {
+                    it.copy(
+                        collaborationStatus = "Connected to room $roomCode.",
+                        isCollaborationBusy = false
+                    )
+                }
+            },
             onError = { error ->
                 _uiState.update {
                     it.copy(collaborationStatus = error.message ?: "Collaboration sync failed.")

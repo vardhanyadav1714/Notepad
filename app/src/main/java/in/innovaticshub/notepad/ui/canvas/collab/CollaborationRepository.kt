@@ -15,6 +15,7 @@ import org.json.JSONObject
 import java.net.URLEncoder
 import java.util.UUID
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 class CollaborationRepository {
     private val websocketBaseUrl = "wss://notepad-collab.vinayyadav010010001.workers.dev/ws"
@@ -24,10 +25,10 @@ class CollaborationRepository {
         .build()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val socketLock = Any()
-    private val pendingMessages = mutableListOf<String>()
 
     private var webSocket: WebSocket? = null
     private var socketOpen = false
+    private var activeRoomCode: String? = null
 
     val currentUserId: String = "local-${UUID.randomUUID()}"
 
@@ -47,18 +48,17 @@ class CollaborationRepository {
             .toString()
 
         withContext(Dispatchers.IO) {
-            val sentOrQueued = synchronized(socketLock) {
+            val sent = synchronized(socketLock) {
                 val socket = webSocket
                 if (socket != null && socketOpen) {
                     socket.send(message)
                 } else {
-                    pendingMessages += message
-                    true
+                    false
                 }
             }
 
-            if (!sentOrQueued) {
-                error("Could not send stroke to collaboration room.")
+            if (!sent) {
+                error("Collaboration is not connected yet. Please wait and try again.")
             }
         }
     }
@@ -66,28 +66,31 @@ class CollaborationRepository {
     fun listenToStrokes(
         roomCode: String,
         onStrokes: (List<RemoteStroke>) -> Unit,
+        onConnected: () -> Unit,
         onError: (Throwable) -> Unit
     ): CollaborationSubscription {
         val normalized = normalizeRoomCode(roomCode)
-        val request = Request.Builder()
-            .url("$websocketBaseUrl/${normalized.urlEncoded()}")
-            .build()
+        val closedByUser = AtomicBoolean(false)
 
         synchronized(socketLock) {
             webSocket?.close(1000, "Switching rooms")
             webSocket = null
             socketOpen = false
-            pendingMessages.clear()
+            activeRoomCode = normalized
         }
 
-        val socket = client.newWebSocket(
+        fun connect(): WebSocket {
+            val request = Request.Builder()
+                .url("$websocketBaseUrl/${normalized.urlEncoded()}")
+                .build()
+
+            return client.newWebSocket(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
-                    val queued = synchronized(socketLock) {
+                    synchronized(socketLock) {
                         this@CollaborationRepository.webSocket = webSocket
                         socketOpen = true
-                        pendingMessages.toList().also { pendingMessages.clear() }
                     }
                     webSocket.send(
                         JSONObject()
@@ -95,9 +98,8 @@ class CollaborationRepository {
                             .put("userId", currentUserId)
                             .toString()
                     )
-                    queued.forEach(webSocket::send)
                     scope.launch(Dispatchers.Main) {
-                        onStrokes(emptyList())
+                        onConnected()
                     }
                 }
 
@@ -118,6 +120,22 @@ class CollaborationRepository {
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    val shouldReconnect = synchronized(socketLock) {
+                        if (this@CollaborationRepository.webSocket == webSocket) {
+                            socketOpen = false
+                        }
+                        !closedByUser.get() && activeRoomCode == normalized
+                    }
+
+                    if (shouldReconnect) {
+                        scope.launch {
+                            kotlinx.coroutines.delay(1200)
+                            if (!closedByUser.get()) {
+                                connect()
+                            }
+                        }
+                    }
+
                     synchronized(socketLock) {
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             socketOpen = false
@@ -129,6 +147,23 @@ class CollaborationRepository {
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    val shouldReconnect = synchronized(socketLock) {
+                        if (this@CollaborationRepository.webSocket == webSocket) {
+                            this@CollaborationRepository.webSocket = null
+                            socketOpen = false
+                        }
+                        !closedByUser.get() && code != 1000 && activeRoomCode == normalized
+                    }
+
+                    if (shouldReconnect) {
+                        scope.launch {
+                            kotlinx.coroutines.delay(1200)
+                            if (!closedByUser.get()) {
+                                connect()
+                            }
+                        }
+                    }
+
                     synchronized(socketLock) {
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             this@CollaborationRepository.webSocket = null
@@ -137,21 +172,25 @@ class CollaborationRepository {
                     }
                 }
             }
-        )
+            )
+        }
+
+        val socket = connect()
 
         synchronized(socketLock) {
             webSocket = socket
         }
 
         return CollaborationSubscription {
-            synchronized(socketLock) {
-                if (webSocket == socket) {
-                    webSocket = null
-                    socketOpen = false
-                    pendingMessages.clear()
-                }
+            closedByUser.set(true)
+            val socketToClose = synchronized(socketLock) {
+                val current = webSocket
+                webSocket = null
+                socketOpen = false
+                activeRoomCode = null
+                current
             }
-            socket.close(1000, "Leaving room")
+            socketToClose?.close(1000, "Leaving room")
         }
     }
 
