@@ -1,274 +1,246 @@
 package `in`.innovaticshub.notepad.ui.canvas.collab
 
-import com.google.firebase.firestore.ListenerRegistration
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.Response
+import okhttp3.WebSocket
+import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
-import java.io.OutputStreamWriter
-import java.net.HttpURLConnection
-import java.net.URL
 import java.net.URLEncoder
 import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 class CollaborationRepository {
-    private val projectId = "notepad-d4681"
-    private val apiKey = "AIzaSyB0nBpBk1hO1Tr4Na1dmELoke0f68nmnZs"
-    private val baseUrl = "https://firestore.googleapis.com/v1/projects/$projectId/databases/(default)/documents"
+    private val websocketBaseUrl = "wss://notepad-collab.vinayyadav010010001.workers.dev/ws"
+    private val client = OkHttpClient.Builder()
+        .pingInterval(25, TimeUnit.SECONDS)
+        .retryOnConnectionFailure(true)
+        .build()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val socketLock = Any()
+    private val pendingMessages = mutableListOf<String>()
+
+    private var webSocket: WebSocket? = null
+    private var socketOpen = false
 
     val currentUserId: String = "local-${UUID.randomUUID()}"
 
     suspend fun createRoom(): String {
-        val roomCode = System.currentTimeMillis().toString()
-        writeDocument(
-            path = "canvasRooms/${roomCode.urlEncoded()}",
-            body = documentJson(
-                "ownerId" to stringValue(currentUserId),
-                "createdAt" to integerValue(System.currentTimeMillis()),
-                "updatedAt" to integerValue(System.currentTimeMillis()),
-                "active" to booleanValue(true)
-            )
-        )
-        return roomCode
+        return System.currentTimeMillis().toString()
     }
 
     suspend fun joinRoom(roomCode: String): String {
-        val normalized = normalizeRoomCode(roomCode)
-        writeDocument(
-            path = "canvasRooms/${normalized.urlEncoded()}/participants/${currentUserId.urlEncoded()}",
-            body = documentJson(
-                "userId" to stringValue(currentUserId),
-                "joinedAt" to integerValue(System.currentTimeMillis()),
-                "lastSeen" to integerValue(System.currentTimeMillis())
-            )
-        )
-        return normalized
+        return normalizeRoomCode(roomCode)
     }
 
     suspend fun uploadStroke(roomCode: String, stroke: RemoteStroke) {
         if (stroke.id.isBlank() || roomCode.isBlank()) return
-        writeDocument(
-            path = "canvasRooms/${roomCode.urlEncoded()}/strokes/${stroke.id.urlEncoded()}",
-            body = stroke.toDocumentJson()
-        )
+        val message = JSONObject()
+            .put("type", "stroke")
+            .put("stroke", stroke.toJson())
+            .toString()
+
+        withContext(Dispatchers.IO) {
+            val sentOrQueued = synchronized(socketLock) {
+                val socket = webSocket
+                if (socket != null && socketOpen) {
+                    socket.send(message)
+                } else {
+                    pendingMessages += message
+                    true
+                }
+            }
+
+            if (!sentOrQueued) {
+                error("Could not send stroke to collaboration room.")
+            }
+        }
     }
 
     fun listenToStrokes(
         roomCode: String,
         onStrokes: (List<RemoteStroke>) -> Unit,
         onError: (Throwable) -> Unit
-    ): ListenerRegistration {
+    ): CollaborationSubscription {
         val normalized = normalizeRoomCode(roomCode)
-        val job = scope.launch {
-            var lastDeliveredSignature = ""
-            while (isActive) {
-                runCatching {
-                    listStrokes(normalized)
-                }.onSuccess { strokes ->
-                    val signature = strokes.joinToString("|") { it.id }
-                    if (signature != lastDeliveredSignature) {
-                        lastDeliveredSignature = signature
-                        withContext(Dispatchers.Main) {
-                            onStrokes(strokes)
+        val request = Request.Builder()
+            .url("$websocketBaseUrl/${normalized.urlEncoded()}")
+            .build()
+
+        synchronized(socketLock) {
+            webSocket?.close(1000, "Switching rooms")
+            webSocket = null
+            socketOpen = false
+            pendingMessages.clear()
+        }
+
+        val socket = client.newWebSocket(
+            request,
+            object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    val queued = synchronized(socketLock) {
+                        this@CollaborationRepository.webSocket = webSocket
+                        socketOpen = true
+                        pendingMessages.toList().also { pendingMessages.clear() }
+                    }
+                    webSocket.send(
+                        JSONObject()
+                            .put("type", "join")
+                            .put("userId", currentUserId)
+                            .toString()
+                    )
+                    queued.forEach(webSocket::send)
+                    scope.launch(Dispatchers.Main) {
+                        onStrokes(emptyList())
+                    }
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    runCatching {
+                        text.toRemoteStrokes()
+                    }.onSuccess { strokes ->
+                        if (strokes.isNotEmpty()) {
+                            scope.launch(Dispatchers.Main) {
+                                onStrokes(strokes)
+                            }
+                        }
+                    }.onFailure { error ->
+                        scope.launch(Dispatchers.Main) {
+                            onError(error)
                         }
                     }
-                }.onFailure { error ->
-                    withContext(Dispatchers.Main) {
-                        onError(error)
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    synchronized(socketLock) {
+                        if (this@CollaborationRepository.webSocket == webSocket) {
+                            socketOpen = false
+                        }
+                    }
+                    scope.launch(Dispatchers.Main) {
+                        onError(t)
                     }
                 }
-                delay(850)
-            }
-        }
 
-        return ListenerRegistration { job.cancel() }
-    }
-
-    private suspend fun listStrokes(roomCode: String): List<RemoteStroke> {
-        val response = request(
-            method = "GET",
-            path = "canvasRooms/${roomCode.urlEncoded()}/strokes",
-            body = null
-        )
-        val documents = response.optJSONArray("documents") ?: JSONArray()
-        return buildList {
-            repeat(documents.length()) { index ->
-                documents.optJSONObject(index)
-                    ?.optJSONObject("fields")
-                    ?.toRemoteStrokeOrNull()
-                    ?.let(::add)
-            }
-        }.sortedBy { it.createdAt }
-    }
-
-    private suspend fun writeDocument(path: String, body: JSONObject) {
-        request(
-            method = "PATCH",
-            path = path,
-            body = body
-        )
-    }
-
-    private suspend fun request(method: String, path: String, body: JSONObject?): JSONObject {
-        return withContext(Dispatchers.IO) {
-            val separator = if (path.contains("?")) "&" else "?"
-            val url = URL("$baseUrl/$path${separator}key=$apiKey")
-            val connection = (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = method
-                connectTimeout = 10_000
-                readTimeout = 10_000
-                setRequestProperty("Content-Type", "application/json")
-                if (body != null) {
-                    doOutput = true
-                    OutputStreamWriter(outputStream).use { writer ->
-                        writer.write(body.toString())
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    synchronized(socketLock) {
+                        if (this@CollaborationRepository.webSocket == webSocket) {
+                            this@CollaborationRepository.webSocket = null
+                            socketOpen = false
+                        }
                     }
                 }
             }
+        )
 
-            val responseCode = connection.responseCode
-            val responseText = if (responseCode in 200..299) {
-                connection.inputStream.bufferedReader().use { it.readText() }
-            } else {
-                connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
+        synchronized(socketLock) {
+            webSocket = socket
+        }
+
+        return CollaborationSubscription {
+            synchronized(socketLock) {
+                if (webSocket == socket) {
+                    webSocket = null
+                    socketOpen = false
+                    pendingMessages.clear()
+                }
             }
-
-            if (responseCode !in 200..299) {
-                val message = runCatching {
-                    JSONObject(responseText)
-                        .optJSONObject("error")
-                        ?.optString("message")
-                }.getOrNull().takeUnless { it.isNullOrBlank() }
-                    ?: "Firestore REST request failed with HTTP $responseCode."
-                error(message)
-            }
-
-            if (responseText.isBlank()) JSONObject() else JSONObject(responseText)
+            socket.close(1000, "Leaving room")
         }
     }
 
-    private fun RemoteStroke.toDocumentJson(): JSONObject {
-        return documentJson(
-            "id" to stringValue(id),
-            "userId" to stringValue(userId),
-            "points" to arrayValue(
-                points.map { point ->
-                    mapValue(
-                        "x" to doubleValue(point.x),
-                        "y" to doubleValue(point.y),
-                        "pressure" to doubleValue(point.pressure)
-                    )
+    private fun String.toRemoteStrokes(): List<RemoteStroke> {
+        val json = JSONObject(this)
+        return when (json.optString("type")) {
+            "room_snapshot" -> {
+                val strokes = json.optJSONArray("strokes") ?: JSONArray()
+                buildList {
+                    repeat(strokes.length()) { index ->
+                        strokes.optJSONObject(index)
+                            ?.toRemoteStrokeOrNull()
+                            ?.let(::add)
+                    }
                 }
-            ),
-            "toolConfig" to mapValue(
-                "type" to stringValue(toolConfig.type),
-                "style" to stringValue(toolConfig.style),
-                "colorArgb" to integerValue(toolConfig.colorArgb),
-                "baseWidth" to doubleValue(toolConfig.baseWidth),
-                "opacity" to doubleValue(toolConfig.opacity),
-                "usePressure" to booleanValue(toolConfig.usePressure)
-            ),
-            "createdAt" to integerValue(createdAt)
-        )
+            }
+            "stroke" -> listOfNotNull(json.optJSONObject("stroke")?.toRemoteStrokeOrNull())
+            "error" -> error(json.optString("message", "Collaboration server error."))
+            else -> emptyList()
+        }
+    }
+
+    private fun RemoteStroke.toJson(): JSONObject {
+        return JSONObject()
+            .put("id", id)
+            .put("userId", userId)
+            .put(
+                "points",
+                JSONArray().apply {
+                    points.forEach { point ->
+                        put(
+                            JSONObject()
+                                .put("x", point.x)
+                                .put("y", point.y)
+                                .put("pressure", point.pressure)
+                        )
+                    }
+                }
+            )
+            .put(
+                "toolConfig",
+                JSONObject()
+                    .put("type", toolConfig.type)
+                    .put("style", toolConfig.style)
+                    .put("colorArgb", toolConfig.colorArgb)
+                    .put("baseWidth", toolConfig.baseWidth)
+                    .put("opacity", toolConfig.opacity)
+                    .put("usePressure", toolConfig.usePressure)
+            )
+            .put("createdAt", createdAt)
     }
 
     private fun JSONObject.toRemoteStrokeOrNull(): RemoteStroke? {
-        val tool = optJSONObject("toolConfig")
-            ?.optJSONObject("mapValue")
-            ?.optJSONObject("fields")
-            ?: return null
-        val pointsArray = optJSONObject("points")
-            ?.optJSONObject("arrayValue")
-            ?.optJSONArray("values")
-            ?: JSONArray()
-
+        val pointsArray = optJSONArray("points") ?: JSONArray()
+        val tool = optJSONObject("toolConfig") ?: JSONObject()
         return RemoteStroke(
-            id = optStringValue("id") ?: return null,
-            userId = optStringValue("userId") ?: "",
+            id = optString("id").takeUnless { it.isBlank() } ?: return null,
+            userId = optString("userId"),
             points = buildList {
                 repeat(pointsArray.length()) { index ->
-                    val point = pointsArray
-                        .optJSONObject(index)
-                        ?.optJSONObject("mapValue")
-                        ?.optJSONObject("fields")
+                    val point = pointsArray.optJSONObject(index)
                     if (point != null) {
                         add(
                             RemoteStrokePoint(
-                                x = point.optDoubleValue("x"),
-                                y = point.optDoubleValue("y"),
-                                pressure = point.optDoubleValue("pressure", 1.0)
+                                x = point.optDouble("x"),
+                                y = point.optDouble("y"),
+                                pressure = point.optDouble("pressure", 1.0)
                             )
                         )
                     }
                 }
             },
             toolConfig = RemoteToolConfig(
-                type = tool.optStringValue("type") ?: "PEN",
-                style = tool.optStringValue("style") ?: "SOLID",
-                colorArgb = tool.optLongValue("colorArgb", 0xFF000000L),
-                baseWidth = tool.optDoubleValue("baseWidth", 4.0),
-                opacity = tool.optDoubleValue("opacity", 1.0),
-                usePressure = tool.optBooleanValue("usePressure", true)
+                type = tool.optString("type", "PEN"),
+                style = tool.optString("style", "SOLID"),
+                colorArgb = tool.optLong("colorArgb", 0xFF000000L),
+                baseWidth = tool.optDouble("baseWidth", 4.0),
+                opacity = tool.optDouble("opacity", 1.0),
+                usePressure = tool.optBoolean("usePressure", true)
             ),
-            createdAt = optLongValue("createdAt", 0L)
+            createdAt = optLong("createdAt", 0L)
         )
-    }
-
-    private fun documentJson(vararg fields: Pair<String, JSONObject>): JSONObject {
-        return JSONObject().put("fields", mapValue(*fields).getJSONObject("mapValue").getJSONObject("fields"))
-    }
-
-    private fun mapValue(vararg fields: Pair<String, JSONObject>): JSONObject {
-        val jsonFields = JSONObject()
-        fields.forEach { (key, value) -> jsonFields.put(key, value) }
-        return JSONObject().put("mapValue", JSONObject().put("fields", jsonFields))
-    }
-
-    private fun arrayValue(values: List<JSONObject>): JSONObject {
-        val array = JSONArray()
-        values.forEach(array::put)
-        return JSONObject().put("arrayValue", JSONObject().put("values", array))
-    }
-
-    private fun stringValue(value: String): JSONObject = JSONObject().put("stringValue", value)
-
-    private fun booleanValue(value: Boolean): JSONObject = JSONObject().put("booleanValue", value)
-
-    private fun integerValue(value: Long): JSONObject = JSONObject().put("integerValue", value.toString())
-
-    private fun doubleValue(value: Double): JSONObject = JSONObject().put("doubleValue", value)
-
-    private fun JSONObject.optStringValue(key: String): String? {
-        return optJSONObject(key)?.optString("stringValue")?.takeUnless { it.isBlank() }
-    }
-
-    private fun JSONObject.optLongValue(key: String, fallback: Long): Long {
-        val value = optJSONObject(key) ?: return fallback
-        return value.optString("integerValue").toLongOrNull()
-            ?: value.optDouble("doubleValue", fallback.toDouble()).toLong()
-    }
-
-    private fun JSONObject.optDoubleValue(key: String, fallback: Double = 0.0): Double {
-        val value = optJSONObject(key) ?: return fallback
-        return value.optDouble("doubleValue", Double.NaN).takeUnless { it.isNaN() }
-            ?: value.optString("integerValue").toDoubleOrNull()
-            ?: fallback
-    }
-
-    private fun JSONObject.optBooleanValue(key: String, fallback: Boolean): Boolean {
-        return optJSONObject(key)?.optBoolean("booleanValue", fallback) ?: fallback
     }
 
     private fun normalizeRoomCode(input: String): String {
         return input
             .substringAfter("room=", input)
             .substringBefore("&")
+            .substringAfterLast("/")
             .trim()
     }
 

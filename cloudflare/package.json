@@ -1,0 +1,13 @@
+{
+  "name": "notepad-collab-worker",
+  "private": true,
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "dev": "wrangler dev"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260520.0",
+    "typescript": "^5.8.3",
+    "wrangler": "^4.16.1"
+  }
+}

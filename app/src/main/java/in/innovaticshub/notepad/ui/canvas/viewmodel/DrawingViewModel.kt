@@ -3,8 +3,8 @@ package `in`.innovaticshub.notepad.ui.canvas.viewmodel
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.google.firebase.firestore.ListenerRegistration
 import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationRepository
+import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationSubscription
 import `in`.innovaticshub.notepad.ui.canvas.collab.toLocalStroke
 import `in`.innovaticshub.notepad.ui.canvas.collab.toRemoteStroke
 import `in`.innovaticshub.notepad.ui.canvas.engine.CanvasHistory
@@ -58,7 +58,7 @@ class DrawingViewModel : ViewModel() {
 
     private var currentStrokeBuilder: StrokeBuilder? = null
     private var currentStroke: Stroke? = null
-    private var strokeListener: ListenerRegistration? = null
+    private var strokeListener: CollaborationSubscription? = null
     private val appliedRemoteStrokeIds = mutableSetOf<String>()
 
     fun startStroke(

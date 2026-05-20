@@ -42,8 +42,8 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="notepad-d4681.web.app"
-                    android:pathPrefix="/canvas"
+                    android:host="notepad-collab.vinayyadav010010001.workers.dev"
+                    android:pathPrefix="/r"
                     android:scheme="https" />
             </intent-filter>
         </activity>

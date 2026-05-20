@@ -18,3 +18,5 @@ local.properties
 .kotlin/
 firebase-debug.log
 .idea/deviceManager.xml
+cloudflare/node_modules/
+cloudflare/.wrangler/

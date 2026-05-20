@@ -113,7 +113,7 @@ fun ModernDrawingScreen(
     }
 
     fun roomLink(roomCode: String): String {
-        return "https://notepad-d4681.web.app/canvas?room=$roomCode"
+        return "https://notepad-collab.vinayyadav010010001.workers.dev/r/$roomCode"
     }
 
     fun shareRoom(roomCode: String) {
