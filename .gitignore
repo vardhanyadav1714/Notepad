@@ -13,3 +13,8 @@
 .externalNativeBuild
 .cxx
 local.properties
+.claude/
+.firebase/
+.kotlin/
+firebase-debug.log
+.idea/deviceManager.xml

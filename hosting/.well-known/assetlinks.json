@@ -1,0 +1,14 @@
+[
+  {
+    "relation": [
+      "delegate_permission/common.handle_all_urls"
+    ],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "in.innovaticshub.notepad",
+      "sha256_cert_fingerprints": [
+        "54:EF:4A:77:47:04:7A:E6:58:44:04:51:87:0D:C1:A5:DC:E6:F7:13:12:68:DA:D2:D3:DC:1B:F9:45:F8:8C:A2"
+      ]
+    }
+  }
+]

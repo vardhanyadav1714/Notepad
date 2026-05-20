@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Notepad Canvas</title>
+    <style>
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        font-family: Arial, sans-serif;
+        background: #f7f7f8;
+        color: #111827;
+      }
+      main {
+        max-width: 520px;
+        padding: 32px;
+        text-align: center;
+      }
+      h1 {
+        margin: 0 0 12px;
+        font-size: 28px;
+      }
+      p {
+        margin: 0;
+        color: #4b5563;
+        line-height: 1.5;
+      }
+      a {
+        display: inline-block;
+        margin-top: 22px;
+        padding: 12px 18px;
+        border-radius: 999px;
+        background: #111827;
+        color: #ffffff;
+        text-decoration: none;
+        font-weight: 700;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Open Notepad Canvas</h1>
+      <p>If the app is installed, this shared canvas link opens directly in Notepad.</p>
+      <a id="open-app" href="#">Open in app</a>
+    </main>
+    <script>
+      const params = new URLSearchParams(window.location.search);
+      const room = params.get("room");
+      const openApp = document.getElementById("open-app");
+      const appUrl = room
+        ? `intent://canvas?room=${encodeURIComponent(room)}#Intent;scheme=notepad;package=in.innovaticshub.notepad;end`
+        : "intent://canvas#Intent;scheme=notepad;package=in.innovaticshub.notepad;end";
+
+      openApp.href = appUrl;
+      if (room && /Android/i.test(navigator.userAgent)) {
+        setTimeout(() => {
+          window.location.href = appUrl;
+        }, 250);
+      }
+    </script>
+  </body>
+</html>
