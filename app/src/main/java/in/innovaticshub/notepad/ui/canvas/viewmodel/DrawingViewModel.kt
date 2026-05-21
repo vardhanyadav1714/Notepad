@@ -30,7 +30,7 @@ data class DrawingUiState(
     val canUndo: Boolean = false,
     val canRedo: Boolean = false,
     val canvasBackgroundColor: Color = Color(0xFFFAFAFA),
-    val showGrid: Boolean = true,
+    val showGrid: Boolean = false,
     val recentColors: List<Color> = defaultRecentColors(),
     val showToolSettings: Boolean = false,
     val selectedStrokeIds: Set<String> = emptySet(),
@@ -189,10 +189,6 @@ class DrawingViewModel : ViewModel() {
 
     fun dismissToolSettings() {
         _uiState.update { it.copy(showToolSettings = false) }
-    }
-
-    fun toggleGrid() {
-        _uiState.update { it.copy(showGrid = !it.showGrid) }
     }
 
     fun toggleDarkCanvas() {

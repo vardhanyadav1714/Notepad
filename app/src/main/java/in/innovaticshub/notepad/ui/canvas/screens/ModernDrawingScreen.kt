@@ -34,8 +34,6 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.GridOff
-import androidx.compose.material.icons.filled.GridOn
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
@@ -103,7 +101,6 @@ private data class MarkupDockActions(
     val onToolSelected: (ToolType) -> Unit,
     val onColorClick: () -> Unit,
     val onAddClick: () -> Unit,
-    val onGridToggle: () -> Unit,
     val onThemeToggle: () -> Unit,
     val onCollaborationClick: () -> Unit
 )
@@ -201,7 +198,6 @@ fun ModernDrawingScreen(
                 onAddClick = {
                     activePanel = if (activePanel == MarkupPanel.Tools) null else MarkupPanel.Tools
                 },
-                onGridToggle = { viewModel.toggleGrid() },
                 onThemeToggle = { viewModel.toggleDarkCanvas() },
                 onCollaborationClick = {
                     activePanel = MarkupPanel.Collaboration
@@ -233,7 +229,6 @@ fun ModernDrawingScreen(
                         isCollaborating = uiState.collaborationRoomCode != null,
                         isCollaborationBusy = uiState.isCollaborationBusy,
                         isDarkCanvas = isDarkCanvas,
-                        showGrid = uiState.showGrid,
                         isVertical = true,
                         actions = dockActions
                     )
@@ -278,7 +273,6 @@ fun ModernDrawingScreen(
                         isCollaborating = uiState.collaborationRoomCode != null,
                         isCollaborationBusy = uiState.isCollaborationBusy,
                         isDarkCanvas = isDarkCanvas,
-                        showGrid = uiState.showGrid,
                         isVertical = false,
                         actions = dockActions,
                         modifier = Modifier.fillMaxWidth()
@@ -355,7 +349,6 @@ private fun MarkupDock(
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
     isDarkCanvas: Boolean,
-    showGrid: Boolean,
     isVertical: Boolean,
     actions: MarkupDockActions,
     modifier: Modifier = Modifier
@@ -402,7 +395,6 @@ private fun MarkupDock(
                     isCollaborating = isCollaborating,
                     isCollaborationBusy = isCollaborationBusy,
                     isDarkCanvas = isDarkCanvas,
-                    showGrid = showGrid,
                     isVertical = true,
                     actions = actions
                 )
@@ -428,7 +420,6 @@ private fun MarkupDock(
                     isCollaborating = isCollaborating,
                     isCollaborationBusy = isCollaborationBusy,
                     isDarkCanvas = isDarkCanvas,
-                    showGrid = showGrid,
                     isVertical = false,
                     actions = actions
                 )
@@ -451,7 +442,6 @@ private fun DockContents(
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
     isDarkCanvas: Boolean,
-    showGrid: Boolean,
     isVertical: Boolean,
     actions: MarkupDockActions
 ) {
@@ -507,13 +497,6 @@ private fun DockContents(
         selected = toolsPanelOpen,
         isDark = isDarkCanvas,
         onClick = actions.onAddClick
-    )
-    DockIcon(
-        icon = if (showGrid) Icons.Default.GridOn else Icons.Default.GridOff,
-        description = if (showGrid) "Use plain canvas" else "Use grid canvas",
-        onClick = actions.onGridToggle,
-        selected = showGrid,
-        isDark = isDarkCanvas
     )
     DockIcon(
         icon = if (isDarkCanvas) Icons.Default.LightMode else Icons.Default.DarkMode,
