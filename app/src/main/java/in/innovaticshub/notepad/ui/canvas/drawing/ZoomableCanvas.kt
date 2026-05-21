@@ -63,8 +63,12 @@ fun ZoomableCanvas(
             .onSizeChanged { size ->
                 zoomState.updateViewportSize(size.width.toFloat(), size.height.toFloat())
             }
-            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds, selectedBounds) {
+            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds) {
                 awaitEachGesture {
+                    val gestureSelectedBounds = computeSelectedBounds(
+                        uiState.strokes,
+                        uiState.selectedStrokeIds
+                    )
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
                     val isStylus = firstDown.type == PointerType.Stylus ||
                         firstDown.type == PointerType.Eraser
@@ -77,18 +81,18 @@ fun ZoomableCanvas(
                     var initialPinchDistance = 0f
                     var lastPinchCenter = Offset.Zero
 
-                    if (uiState.currentTool.type == ToolType.LASSO && selectedBounds != null) {
+                    if (uiState.currentTool.type == ToolType.LASSO && gestureSelectedBounds != null) {
                         val handleRadius = (34f / zoomState.scale).coerceIn(16f, 70f)
-                        val resizeHandle = selectedBounds.selectionHandles(zoomState.scale)
+                        val resizeHandle = gestureSelectedBounds.selectionHandles(zoomState.scale)
                             .minByOrNull { (it.center - firstCanvasPoint).getDistance() }
                             ?.takeIf { (it.center - firstCanvasPoint).getDistance() <= handleRadius }
-                        val insideSelection = selectedBounds
+                        val insideSelection = gestureSelectedBounds
                             .expanded((34f / zoomState.scale).coerceIn(14f, 80f))
                             .contains(firstCanvasPoint)
 
                         if (resizeHandle != null || insideSelection) {
                             selectionDragMode = if (resizeHandle != null) SelectionDragMode.Scale else SelectionDragMode.Move
-                            selectionPivot = resizeHandle?.pivot ?: selectedBounds.center
+                            selectionPivot = resizeHandle?.pivot ?: gestureSelectedBounds.center
                             lastSelectionPoint = firstCanvasPoint
                             viewModel.beginSelectionTransform()
                             firstDown.consume()

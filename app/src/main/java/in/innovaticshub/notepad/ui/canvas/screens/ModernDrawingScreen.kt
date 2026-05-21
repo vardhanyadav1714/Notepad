@@ -161,6 +161,7 @@ fun ModernDrawingScreen(
                 MarkupDock(
                     selected = uiState.currentTool.type,
                     currentColor = uiState.currentTool.color,
+                    selectedCount = uiState.selectedStrokeIds.size,
                     canUndo = uiState.canUndo,
                     canRedo = uiState.canRedo,
                     colorPanelOpen = activePanel == MarkupPanel.Colors,
@@ -172,6 +173,11 @@ fun ModernDrawingScreen(
                     onUndo = { viewModel.undo() },
                     onRedo = { viewModel.redo() },
                     onClear = { viewModel.clearCanvas() },
+                    onSelectionSmaller = { viewModel.scaleSelectionFromCenter(0.88f) },
+                    onSelectionLarger = { viewModel.scaleSelectionFromCenter(1.12f) },
+                    onSelectionNudgeLeft = { viewModel.nudgeSelection(-12f / zoomState.scale, 0f) },
+                    onSelectionNudgeRight = { viewModel.nudgeSelection(12f / zoomState.scale, 0f) },
+                    onSelectionDismiss = { viewModel.clearSelection() },
                     onToolSelected = {
                         viewModel.setTool(it)
                         activePanel = null
@@ -250,6 +256,7 @@ fun ModernDrawingScreen(
 private fun MarkupDock(
     selected: ToolType,
     currentColor: Color,
+    selectedCount: Int,
     canUndo: Boolean,
     canRedo: Boolean,
     colorPanelOpen: Boolean,
@@ -261,6 +268,11 @@ private fun MarkupDock(
     onUndo: () -> Unit,
     onRedo: () -> Unit,
     onClear: () -> Unit,
+    onSelectionSmaller: () -> Unit,
+    onSelectionLarger: () -> Unit,
+    onSelectionNudgeLeft: () -> Unit,
+    onSelectionNudgeRight: () -> Unit,
+    onSelectionDismiss: () -> Unit,
     onToolSelected: (ToolType) -> Unit,
     onColorClick: () -> Unit,
     onAddClick: () -> Unit,
@@ -308,6 +320,18 @@ private fun MarkupDock(
                 )
             }
 
+            if (selectedCount > 0) {
+                VerticalHairline()
+                LassoTransformControls(
+                    selectedCount = selectedCount,
+                    onSmaller = onSelectionSmaller,
+                    onLarger = onSelectionLarger,
+                    onNudgeLeft = onSelectionNudgeLeft,
+                    onNudgeRight = onSelectionNudgeRight,
+                    onDismiss = onSelectionDismiss
+                )
+            }
+
             VerticalHairline()
 
             ColorWheelButton(
@@ -328,6 +352,61 @@ private fun MarkupDock(
             )
             TopRoundButton(Icons.Default.MoreHoriz, "More", {}, enabled = false)
             TopDoneButton(onClick = onBack)
+        }
+    }
+}
+
+@Composable
+private fun LassoTransformControls(
+    selectedCount: Int,
+    onSmaller: () -> Unit,
+    onLarger: () -> Unit,
+    onNudgeLeft: () -> Unit,
+    onNudgeRight: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFEAF3FF),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Text(
+                text = "$selectedCount",
+                color = Color(0xFF0057B8),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            MiniTextButton("−", onSmaller)
+            MiniTextButton("+", onLarger)
+            MiniTextButton("‹", onNudgeLeft)
+            MiniTextButton("›", onNudgeRight)
+            MiniTextButton("×", onDismiss)
+        }
+    }
+}
+
+@Composable
+private fun MiniTextButton(
+    label: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(24.dp),
+        shape = CircleShape,
+        color = Color.White.copy(alpha = 0.9f)
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Text(
+                text = label,
+                color = Color(0xFF111827),
+                style = MaterialTheme.typography.labelLarge
+            )
         }
     }
 }

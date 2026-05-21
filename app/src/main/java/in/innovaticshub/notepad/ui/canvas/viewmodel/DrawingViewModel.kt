@@ -9,6 +9,7 @@ import `in`.innovaticshub.notepad.ui.canvas.collab.toLocalStroke
 import `in`.innovaticshub.notepad.ui.canvas.collab.toRemoteStroke
 import `in`.innovaticshub.notepad.ui.canvas.engine.CanvasHistory
 import `in`.innovaticshub.notepad.ui.canvas.engine.StrokeEraser
+import `in`.innovaticshub.notepad.ui.canvas.model.RectF
 import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
 import `in`.innovaticshub.notepad.ui.canvas.model.StrokeBuilder
 import `in`.innovaticshub.notepad.ui.canvas.model.StrokePoint
@@ -240,6 +241,24 @@ class DrawingViewModel : ViewModel() {
         }
     }
 
+    fun nudgeSelection(dx: Float, dy: Float) {
+        if (_uiState.value.selectedStrokeIds.isEmpty()) return
+        beginSelectionTransform()
+        moveSelectedStrokesBy(dx, dy)
+        endSelectionTransform()
+    }
+
+    fun scaleSelectionFromCenter(scale: Float) {
+        val bounds = selectedBounds() ?: return
+        beginSelectionTransform()
+        scaleSelectedStrokesBy(
+            scale = scale,
+            pivotX = (bounds.left + bounds.right) / 2f,
+            pivotY = (bounds.top + bounds.bottom) / 2f
+        )
+        endSelectionTransform()
+    }
+
     fun createCollaborationRoom() {
         if (_uiState.value.isCollaborationBusy) return
         viewModelScope.launch {
@@ -348,8 +367,19 @@ class DrawingViewModel : ViewModel() {
         clearSelection()
     }
 
-    private fun clearSelection() {
+    fun clearSelection() {
         _uiState.update { it.copy(selectedStrokeIds = emptySet()) }
+    }
+
+    private fun selectedBounds(): RectF? {
+        val selected = _uiState.value.strokes.filter { it.id in _uiState.value.selectedStrokeIds }
+        if (selected.isEmpty()) return null
+        return RectF(
+            left = selected.minOf { it.bounds.left },
+            top = selected.minOf { it.bounds.top },
+            right = selected.maxOf { it.bounds.right },
+            bottom = selected.maxOf { it.bounds.bottom }
+        )
     }
 
     private fun selectStrokesWithLasso(lassoStroke: Stroke) {
