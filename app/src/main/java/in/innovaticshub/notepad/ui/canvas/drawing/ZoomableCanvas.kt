@@ -26,7 +26,8 @@ import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
 import `in`.innovaticshub.notepad.ui.canvas.viewmodel.DrawingViewModel
 import `in`.innovaticshub.notepad.ui.canvas.zoom.ZoomState
-import kotlin.math.max
+import kotlin.math.ceil
+import kotlin.math.floor
 
 private enum class SelectionDragMode {
     Move,
@@ -206,19 +207,18 @@ fun ZoomableCanvas(
                 )
             }
     ) {
+        drawRect(color = backgroundColor)
+
         withTransform({
             translate(zoomState.offset.x, zoomState.offset.y)
             scale(zoomState.scale, zoomState.scale, pivot = Offset.Zero)
         }) {
-            val worldHalf = max(size.width, size.height) / zoomState.scale + 8000f
-            drawRect(
-                color = backgroundColor,
-                topLeft = Offset(-worldHalf, -worldHalf),
-                size = Size(worldHalf * 2f, worldHalf * 2f)
-            )
-
             if (uiState.showGrid) {
-                drawAdaptiveGrid(zoomState.scale)
+                drawAdaptiveGrid(
+                    scale = zoomState.scale,
+                    offset = zoomState.offset,
+                    isDark = backgroundColor.luminance() < 0.35f
+                )
             }
 
             uiState.strokes.forEach { stroke ->
@@ -305,26 +305,42 @@ private fun selectionPadding(scale: Float): Float {
     return (12f / scale).coerceIn(4f, 18f)
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(scale: Float) {
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(
+    scale: Float,
+    offset: Offset,
+    isDark: Boolean
+) {
     var spacing = 40f
     while (spacing * scale < 24f) spacing *= 2f
     while (spacing * scale > 96f) spacing /= 2f
 
-    val halfW = size.width / scale / 2f + spacing * 3f
-    val halfH = size.height / scale / 2f + spacing * 3f
+    val left = -offset.x / scale - spacing * 2f
+    val top = -offset.y / scale - spacing * 2f
+    val right = left + size.width / scale + spacing * 4f
+    val bottom = top + size.height / scale + spacing * 4f
     val lineWidth = (1f / scale).coerceIn(0.2f, 1.5f)
-    val color = Color.Gray.copy(alpha = 0.1f)
+    val color = if (isDark) {
+        Color.White.copy(alpha = 0.09f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
 
-    var x = -halfW
-    while (x <= halfW) {
-        drawLine(color, Offset(x, -halfH), Offset(x, halfH), lineWidth)
+    var x = floor(left / spacing) * spacing
+    val lastX = ceil(right / spacing) * spacing
+    while (x <= lastX) {
+        drawLine(color, Offset(x, top), Offset(x, bottom), lineWidth)
         x += spacing
     }
-    var y = -halfH
-    while (y <= halfH) {
-        drawLine(color, Offset(-halfW, y), Offset(halfW, y), lineWidth)
+    var y = floor(top / spacing) * spacing
+    val lastY = ceil(bottom / spacing) * spacing
+    while (y <= lastY) {
+        drawLine(color, Offset(left, y), Offset(right, y), lineWidth)
         y += spacing
     }
+}
+
+private fun Color.luminance(): Float {
+    return red * 0.299f + green * 0.587f + blue * 0.114f
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionOverlay(

@@ -1,6 +1,7 @@
 package `in`.innovaticshub.notepad.ui.canvas.screens
 
 import android.content.Intent
+import android.content.res.Configuration
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -15,6 +16,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -23,13 +25,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.GridOff
+import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -61,6 +68,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import `in`.innovaticshub.notepad.ui.canvas.drawing.ZoomableCanvas
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolConfig
@@ -82,6 +90,24 @@ private enum class ColorMode {
     Sliders
 }
 
+private data class MarkupDockActions(
+    val onBack: () -> Unit,
+    val onUndo: () -> Unit,
+    val onRedo: () -> Unit,
+    val onClear: () -> Unit,
+    val onSelectionSmaller: () -> Unit,
+    val onSelectionLarger: () -> Unit,
+    val onSelectionNudgeLeft: () -> Unit,
+    val onSelectionNudgeRight: () -> Unit,
+    val onSelectionDismiss: () -> Unit,
+    val onToolSelected: (ToolType) -> Unit,
+    val onColorClick: () -> Unit,
+    val onAddClick: () -> Unit,
+    val onGridToggle: () -> Unit,
+    val onThemeToggle: () -> Unit,
+    val onCollaborationClick: () -> Unit
+)
+
 @Composable
 fun ModernDrawingScreen(
     viewModel: DrawingViewModel,
@@ -92,7 +118,10 @@ fun ModernDrawingScreen(
     val uiState by viewModel.uiState.collectAsState()
     val zoomState = viewModel.zoomState
     val context = LocalContext.current
+    val configuration = LocalConfiguration.current
     val scope = rememberCoroutineScope()
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val isDarkCanvas = uiState.canvasBackgroundColor != Color(0xFFFAFAFA)
 
     var chromeVisible by remember { mutableStateOf(true) }
     var showZoomHud by remember { mutableStateOf(false) }
@@ -150,99 +179,157 @@ fun ModernDrawingScreen(
             visible = chromeVisible,
             enter = fadeIn(),
             exit = fadeOut(),
-            modifier = Modifier.align(Alignment.TopCenter)
+            modifier = Modifier.align(if (isLandscape) Alignment.CenterStart else Alignment.TopCenter)
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .statusBarsPadding()
-                    .padding(start = 10.dp, top = 10.dp, end = 10.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                MarkupDock(
-                    selected = uiState.currentTool.type,
-                    currentColor = uiState.currentTool.color,
-                    selectedCount = uiState.selectedStrokeIds.size,
-                    canUndo = uiState.canUndo,
-                    canRedo = uiState.canRedo,
-                    colorPanelOpen = activePanel == MarkupPanel.Colors,
-                    toolsPanelOpen = activePanel == MarkupPanel.Tools,
-                    collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
-                    isCollaborating = uiState.collaborationRoomCode != null,
-                    isCollaborationBusy = uiState.isCollaborationBusy,
-                    onBack = onBackClick,
-                    onUndo = { viewModel.undo() },
-                    onRedo = { viewModel.redo() },
-                    onClear = { viewModel.clearCanvas() },
-                    onSelectionSmaller = { viewModel.scaleSelectionFromCenter(0.88f) },
-                    onSelectionLarger = { viewModel.scaleSelectionFromCenter(1.12f) },
-                    onSelectionNudgeLeft = { viewModel.nudgeSelection(-12f / zoomState.scale, 0f) },
-                    onSelectionNudgeRight = { viewModel.nudgeSelection(12f / zoomState.scale, 0f) },
-                    onSelectionDismiss = { viewModel.clearSelection() },
-                    onToolSelected = {
-                        viewModel.setTool(it)
-                        activePanel = null
-                    },
-                    onColorClick = {
-                        activePanel = if (activePanel == MarkupPanel.Colors) null else MarkupPanel.Colors
-                    },
-                    onAddClick = {
-                        activePanel = if (activePanel == MarkupPanel.Tools) null else MarkupPanel.Tools
-                    },
-                    onCollaborationClick = {
-                        activePanel = MarkupPanel.Collaboration
-                        val roomCode = uiState.collaborationRoomCode
-                        if (roomCode == null && !uiState.isCollaborationBusy) {
-                            viewModel.createCollaborationRoom()
-                        } else if (roomCode != null) {
-                            shareRoom(roomCode)
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                )
+            val dockActions = MarkupDockActions(
+                onBack = onBackClick,
+                onUndo = { viewModel.undo() },
+                onRedo = { viewModel.redo() },
+                onClear = { viewModel.clearCanvas() },
+                onSelectionSmaller = { viewModel.scaleSelectionFromCenter(0.88f) },
+                onSelectionLarger = { viewModel.scaleSelectionFromCenter(1.12f) },
+                onSelectionNudgeLeft = { viewModel.nudgeSelection(-12f / zoomState.scale, 0f) },
+                onSelectionNudgeRight = { viewModel.nudgeSelection(12f / zoomState.scale, 0f) },
+                onSelectionDismiss = { viewModel.clearSelection() },
+                onToolSelected = {
+                    viewModel.setTool(it)
+                    activePanel = null
+                },
+                onColorClick = {
+                    activePanel = if (activePanel == MarkupPanel.Colors) null else MarkupPanel.Colors
+                },
+                onAddClick = {
+                    activePanel = if (activePanel == MarkupPanel.Tools) null else MarkupPanel.Tools
+                },
+                onGridToggle = { viewModel.toggleGrid() },
+                onThemeToggle = { viewModel.toggleDarkCanvas() },
+                onCollaborationClick = {
+                    activePanel = MarkupPanel.Collaboration
+                    val roomCode = uiState.collaborationRoomCode
+                    if (roomCode == null && !uiState.isCollaborationBusy) {
+                        viewModel.createCollaborationRoom()
+                    } else if (roomCode != null) {
+                        shareRoom(roomCode)
+                    }
+                }
+            )
 
-                MarkupColorPanel(
-                    visible = activePanel == MarkupPanel.Colors,
-                    selectedColor = uiState.currentTool.color,
-                    recentColors = uiState.recentColors,
-                    onColorSelected = { viewModel.setColor(it) },
-                    onDismiss = { activePanel = null },
+            if (isLandscape) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(start = 8.dp, top = 8.dp, bottom = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    MarkupDock(
+                        selected = uiState.currentTool.type,
+                        currentColor = uiState.currentTool.color,
+                        selectedCount = uiState.selectedStrokeIds.size,
+                        canUndo = uiState.canUndo,
+                        canRedo = uiState.canRedo,
+                        colorPanelOpen = activePanel == MarkupPanel.Colors,
+                        toolsPanelOpen = activePanel == MarkupPanel.Tools,
+                        collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
+                        isCollaborating = uiState.collaborationRoomCode != null,
+                        isCollaborationBusy = uiState.isCollaborationBusy,
+                        isDarkCanvas = isDarkCanvas,
+                        showGrid = uiState.showGrid,
+                        isVertical = true,
+                        actions = dockActions
+                    )
+                    LandscapePanelColumn(
+                        activePanel = activePanel,
+                        selectedColor = uiState.currentTool.color,
+                        recentColors = uiState.recentColors,
+                        tool = uiState.currentTool,
+                        roomCode = uiState.collaborationRoomCode,
+                        status = uiState.collaborationStatus,
+                        busy = uiState.isCollaborationBusy,
+                        isDark = isDarkCanvas,
+                        onColorSelected = { viewModel.setColor(it) },
+                        onWidthChanged = { viewModel.setStrokeWidth(it) },
+                        onOpacityChanged = { viewModel.setOpacity(it) },
+                        onCreate = { viewModel.createCollaborationRoom() },
+                        onShare = { shareRoom(it) },
+                        onLeave = { viewModel.leaveCollaborationRoom() },
+                        onDismiss = { activePanel = null },
+                        modifier = Modifier
+                            .width(330.dp)
+                            .padding(start = 8.dp)
+                    )
+                }
+            } else {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
-                )
+                        .statusBarsPadding()
+                        .padding(start = 10.dp, top = 10.dp, end = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    MarkupDock(
+                        selected = uiState.currentTool.type,
+                        currentColor = uiState.currentTool.color,
+                        selectedCount = uiState.selectedStrokeIds.size,
+                        canUndo = uiState.canUndo,
+                        canRedo = uiState.canRedo,
+                        colorPanelOpen = activePanel == MarkupPanel.Colors,
+                        toolsPanelOpen = activePanel == MarkupPanel.Tools,
+                        collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
+                        isCollaborating = uiState.collaborationRoomCode != null,
+                        isCollaborationBusy = uiState.isCollaborationBusy,
+                        isDarkCanvas = isDarkCanvas,
+                        showGrid = uiState.showGrid,
+                        isVertical = false,
+                        actions = dockActions,
+                        modifier = Modifier.fillMaxWidth()
+                    )
 
-                MarkupToolPanel(
-                    visible = activePanel == MarkupPanel.Tools,
-                    tool = uiState.currentTool,
-                    onWidthChanged = { viewModel.setStrokeWidth(it) },
-                    onOpacityChanged = { viewModel.setOpacity(it) },
-                    onDismiss = { activePanel = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
-                )
+                    MarkupColorPanel(
+                        visible = activePanel == MarkupPanel.Colors,
+                        selectedColor = uiState.currentTool.color,
+                        recentColors = uiState.recentColors,
+                        isDark = isDarkCanvas,
+                        onColorSelected = { viewModel.setColor(it) },
+                        onDismiss = { activePanel = null },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                    )
 
-                MarkupCollaborationPanel(
-                    visible = activePanel == MarkupPanel.Collaboration,
-                    roomCode = uiState.collaborationRoomCode,
-                    status = uiState.collaborationStatus,
-                    busy = uiState.isCollaborationBusy,
-                    onCreate = { viewModel.createCollaborationRoom() },
-                    onShare = { shareRoom(it) },
-                    onLeave = { viewModel.leaveCollaborationRoom() },
-                    onDismiss = { activePanel = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
-                )
+                    MarkupToolPanel(
+                        visible = activePanel == MarkupPanel.Tools,
+                        tool = uiState.currentTool,
+                        isDark = isDarkCanvas,
+                        onWidthChanged = { viewModel.setStrokeWidth(it) },
+                        onOpacityChanged = { viewModel.setOpacity(it) },
+                        onDismiss = { activePanel = null },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                    )
+
+                    MarkupCollaborationPanel(
+                        visible = activePanel == MarkupPanel.Collaboration,
+                        roomCode = uiState.collaborationRoomCode,
+                        status = uiState.collaborationStatus,
+                        busy = uiState.isCollaborationBusy,
+                        isDark = isDarkCanvas,
+                        onCreate = { viewModel.createCollaborationRoom() },
+                        onShare = { shareRoom(it) },
+                        onLeave = { viewModel.leaveCollaborationRoom() },
+                        onDismiss = { activePanel = null },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                    )
+                }
             }
         }
 
         ZoomIndicator(
             zoomLevel = zoomState.scale,
             isVisible = showZoomHud,
-            isDark = isDark,
+            isDark = isDarkCanvas || isDark,
             onZoomIn = { zoomState.zoomIn(); flashZoom() },
             onZoomOut = { zoomState.zoomOut(); flashZoom() },
             onReset = { zoomState.reset(); flashZoom() },
@@ -265,19 +352,10 @@ private fun MarkupDock(
     collaborationPanelOpen: Boolean,
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
-    onBack: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onClear: () -> Unit,
-    onSelectionSmaller: () -> Unit,
-    onSelectionLarger: () -> Unit,
-    onSelectionNudgeLeft: () -> Unit,
-    onSelectionNudgeRight: () -> Unit,
-    onSelectionDismiss: () -> Unit,
-    onToolSelected: (ToolType) -> Unit,
-    onColorClick: () -> Unit,
-    onAddClick: () -> Unit,
-    onCollaborationClick: () -> Unit,
+    isDarkCanvas: Boolean,
+    showGrid: Boolean,
+    isVertical: Boolean,
+    actions: MarkupDockActions,
     modifier: Modifier = Modifier
 ) {
     val tools = listOf(
@@ -291,67 +369,220 @@ private fun MarkupDock(
     )
 
     Surface(
-        modifier = modifier.padding(horizontal = 4.dp),
+        modifier = modifier.padding(if (isVertical) 0.dp else 4.dp),
         shape = RoundedCornerShape(24.dp),
-        color = Color(0xFFFBFBFD).copy(alpha = 0.97f),
-        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18000000)),
+        color = if (isDarkCanvas) Color(0xF21C1C1E) else Color(0xFFFBFBFD).copy(alpha = 0.97f),
+        border = androidx.compose.foundation.BorderStroke(
+            1.dp,
+            if (isDarkCanvas) Color(0x26FFFFFF) else Color(0x18000000)
+        ),
         shadowElevation = 12.dp,
         tonalElevation = 0.dp
     ) {
-        Row(
-            modifier = Modifier
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 7.dp, vertical = 5.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            TopRoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
-            TopRoundButton(Icons.AutoMirrored.Filled.Undo, "Undo", onUndo, enabled = canUndo)
-            TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", onRedo, enabled = canRedo)
-            TopRoundButton(Icons.Default.Delete, "Delete selected", onClear)
-
-            VerticalHairline()
-
-            tools.forEach { tool ->
-                MarkupToolButton(
-                    tool = tool,
-                    color = currentColor,
-                    selected = selected == tool,
-                    onClick = { onToolSelected(tool) }
-                )
-            }
-
-            if (selectedCount > 0) {
-                VerticalHairline()
-                LassoTransformControls(
+        if (isVertical) {
+            Column(
+                modifier = Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(horizontal = 7.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                DockContents(
+                    tools = tools,
+                    selected = selected,
+                    currentColor = currentColor,
                     selectedCount = selectedCount,
-                    onSmaller = onSelectionSmaller,
-                    onLarger = onSelectionLarger,
-                    onNudgeLeft = onSelectionNudgeLeft,
-                    onNudgeRight = onSelectionNudgeRight,
-                    onDismiss = onSelectionDismiss
+                    canUndo = canUndo,
+                    canRedo = canRedo,
+                    colorPanelOpen = colorPanelOpen,
+                    toolsPanelOpen = toolsPanelOpen,
+                    collaborationPanelOpen = collaborationPanelOpen,
+                    isCollaborating = isCollaborating,
+                    isCollaborationBusy = isCollaborationBusy,
+                    isDarkCanvas = isDarkCanvas,
+                    showGrid = showGrid,
+                    isVertical = true,
+                    actions = actions
                 )
             }
+        } else {
+            Row(
+                modifier = Modifier
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 7.dp, vertical = 5.dp),
+                horizontalArrangement = Arrangement.spacedBy(3.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DockContents(
+                    tools = tools,
+                    selected = selected,
+                    currentColor = currentColor,
+                    selectedCount = selectedCount,
+                    canUndo = canUndo,
+                    canRedo = canRedo,
+                    colorPanelOpen = colorPanelOpen,
+                    toolsPanelOpen = toolsPanelOpen,
+                    collaborationPanelOpen = collaborationPanelOpen,
+                    isCollaborating = isCollaborating,
+                    isCollaborationBusy = isCollaborationBusy,
+                    isDarkCanvas = isDarkCanvas,
+                    showGrid = showGrid,
+                    isVertical = false,
+                    actions = actions
+                )
+            }
+        }
+    }
+}
 
-            VerticalHairline()
+@Composable
+private fun DockContents(
+    tools: List<ToolType>,
+    selected: ToolType,
+    currentColor: Color,
+    selectedCount: Int,
+    canUndo: Boolean,
+    canRedo: Boolean,
+    colorPanelOpen: Boolean,
+    toolsPanelOpen: Boolean,
+    collaborationPanelOpen: Boolean,
+    isCollaborating: Boolean,
+    isCollaborationBusy: Boolean,
+    isDarkCanvas: Boolean,
+    showGrid: Boolean,
+    isVertical: Boolean,
+    actions: MarkupDockActions
+) {
+    TopRoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", actions.onBack, isDark = isDarkCanvas)
+    TopRoundButton(Icons.AutoMirrored.Filled.Undo, "Undo", actions.onUndo, enabled = canUndo, isDark = isDarkCanvas)
+    TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", actions.onRedo, enabled = canRedo, isDark = isDarkCanvas)
+    TopRoundButton(Icons.Default.Delete, "Delete selected", actions.onClear, isDark = isDarkCanvas)
 
-            ColorWheelButton(
-                selectedColor = currentColor,
-                selected = colorPanelOpen,
-                onClick = onColorClick
+    DockHairline(isVertical, isDarkCanvas)
+
+    tools.forEach { tool ->
+        MarkupToolButton(
+            tool = tool,
+            color = currentColor,
+            selected = selected == tool,
+            isDark = isDarkCanvas,
+            onClick = { actions.onToolSelected(tool) }
+        )
+    }
+
+    if (selectedCount > 0) {
+        DockHairline(isVertical, isDarkCanvas)
+        if (isVertical) {
+            VerticalLassoTransformControls(
+                selectedCount = selectedCount,
+                onSmaller = actions.onSelectionSmaller,
+                onLarger = actions.onSelectionLarger,
+                onNudgeLeft = actions.onSelectionNudgeLeft,
+                onNudgeRight = actions.onSelectionNudgeRight,
+                onDismiss = actions.onSelectionDismiss
             )
-            PlusButton(
-                selected = toolsPanelOpen,
-                onClick = onAddClick
-            )
-            DockIcon(
-                icon = Icons.Default.Share,
-                description = "Collaborate",
-                onClick = onCollaborationClick,
-                enabled = !isCollaborationBusy,
-                selected = collaborationPanelOpen || isCollaborating
+        } else {
+            LassoTransformControls(
+                selectedCount = selectedCount,
+                onSmaller = actions.onSelectionSmaller,
+                onLarger = actions.onSelectionLarger,
+                onNudgeLeft = actions.onSelectionNudgeLeft,
+                onNudgeRight = actions.onSelectionNudgeRight,
+                onDismiss = actions.onSelectionDismiss
             )
         }
+    }
+
+    DockHairline(isVertical, isDarkCanvas)
+
+    ColorWheelButton(
+        selectedColor = currentColor,
+        selected = colorPanelOpen,
+        isDark = isDarkCanvas,
+        onClick = actions.onColorClick
+    )
+    PlusButton(
+        selected = toolsPanelOpen,
+        isDark = isDarkCanvas,
+        onClick = actions.onAddClick
+    )
+    DockIcon(
+        icon = if (showGrid) Icons.Default.GridOn else Icons.Default.GridOff,
+        description = if (showGrid) "Use plain canvas" else "Use grid canvas",
+        onClick = actions.onGridToggle,
+        selected = showGrid,
+        isDark = isDarkCanvas
+    )
+    DockIcon(
+        icon = if (isDarkCanvas) Icons.Default.LightMode else Icons.Default.DarkMode,
+        description = if (isDarkCanvas) "Light mode" else "Dark mode",
+        onClick = actions.onThemeToggle,
+        selected = isDarkCanvas,
+        isDark = isDarkCanvas
+    )
+    DockIcon(
+        icon = Icons.Default.Share,
+        description = "Collaborate",
+        onClick = actions.onCollaborationClick,
+        enabled = !isCollaborationBusy,
+        selected = collaborationPanelOpen || isCollaborating,
+        isDark = isDarkCanvas
+    )
+}
+
+@Composable
+private fun LandscapePanelColumn(
+    activePanel: MarkupPanel?,
+    selectedColor: Color,
+    recentColors: List<Color>,
+    tool: ToolConfig,
+    roomCode: String?,
+    status: String?,
+    busy: Boolean,
+    isDark: Boolean,
+    onColorSelected: (Color) -> Unit,
+    onWidthChanged: (Float) -> Unit,
+    onOpacityChanged: (Float) -> Unit,
+    onCreate: () -> Unit,
+    onShare: (String) -> Unit,
+    onLeave: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.Center
+    ) {
+        MarkupColorPanel(
+            visible = activePanel == MarkupPanel.Colors,
+            selectedColor = selectedColor,
+            recentColors = recentColors,
+            isDark = isDark,
+            onColorSelected = onColorSelected,
+            onDismiss = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        )
+        MarkupToolPanel(
+            visible = activePanel == MarkupPanel.Tools,
+            tool = tool,
+            isDark = isDark,
+            onWidthChanged = onWidthChanged,
+            onOpacityChanged = onOpacityChanged,
+            onDismiss = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        )
+        MarkupCollaborationPanel(
+            visible = activePanel == MarkupPanel.Collaboration,
+            roomCode = roomCode,
+            status = status,
+            busy = busy,
+            isDark = isDark,
+            onCreate = onCreate,
+            onShare = onShare,
+            onLeave = onLeave,
+            onDismiss = onDismiss,
+            modifier = Modifier.fillMaxWidth()
+        )
     }
 }
 
@@ -390,6 +621,40 @@ private fun LassoTransformControls(
 }
 
 @Composable
+private fun VerticalLassoTransformControls(
+    selectedCount: Int,
+    onSmaller: () -> Unit,
+    onLarger: () -> Unit,
+    onNudgeLeft: () -> Unit,
+    onNudgeRight: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = Color(0xFFEAF3FF),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(3.dp)
+        ) {
+            Text(
+                text = "$selectedCount",
+                color = Color(0xFF0057B8),
+                style = MaterialTheme.typography.labelMedium,
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
+            MiniTextButton("-", onSmaller)
+            MiniTextButton("+", onLarger)
+            MiniTextButton("<", onNudgeLeft)
+            MiniTextButton(">", onNudgeRight)
+            MiniTextButton("x", onDismiss)
+        }
+    }
+}
+
+@Composable
 private fun MiniTextButton(
     label: String,
     onClick: () -> Unit
@@ -416,6 +681,7 @@ private fun MarkupCollaborationPanel(
     roomCode: String?,
     status: String?,
     busy: Boolean,
+    isDark: Boolean,
     onCreate: () -> Unit,
     onShare: (String) -> Unit,
     onLeave: () -> Unit,
@@ -430,7 +696,7 @@ private fun MarkupCollaborationPanel(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFF8F8FA),
+            color = if (isDark) Color(0xF21C1C1E) else Color(0xFFF8F8FA),
             shadowElevation = 12.dp
         ) {
             Column(
@@ -441,11 +707,16 @@ private fun MarkupCollaborationPanel(
                     Text(
                         text = "Collaborate",
                         style = MaterialTheme.typography.labelLarge,
-                        color = Color(0xFF111827),
+                        color = if (isDark) Color.White else Color(0xFF111827),
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(16.dp),
+                            tint = if (isDark) Color.White else Color(0xFF111827)
+                        )
                     }
                 }
 
@@ -469,16 +740,16 @@ private fun MarkupCollaborationPanel(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        color = Color.White,
-                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x16000000))
+                        color = if (isDark) Color(0xFF2A2C31) else Color.White,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, if (isDark) Color(0x26FFFFFF) else Color(0x16000000))
                     ) {
                         Row(
                             modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Share link ready", style = MaterialTheme.typography.labelSmall, color = Color(0xFF6B7280))
-                                Text(roomCode, style = MaterialTheme.typography.headlineSmall, color = Color(0xFF111827))
+                                Text("Share link ready", style = MaterialTheme.typography.labelSmall, color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280))
+                                Text(roomCode, style = MaterialTheme.typography.headlineSmall, color = if (isDark) Color.White else Color(0xFF111827))
                             }
                             TextButton(onClick = { onShare(roomCode) }, enabled = !busy) {
                                 Text("Share")
@@ -500,7 +771,7 @@ private fun MarkupCollaborationPanel(
                         ) {
                             Color(0xFFB42318)
                         } else {
-                            Color(0xFF4B5563)
+                            if (isDark) Color(0xFFB9C0CC) else Color(0xFF4B5563)
                         }
                     )
                 }
@@ -514,6 +785,7 @@ private fun MarkupColorPanel(
     visible: Boolean,
     selectedColor: Color,
     recentColors: List<Color>,
+    isDark: Boolean,
     onColorSelected: (Color) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
@@ -528,7 +800,7 @@ private fun MarkupColorPanel(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFF8F8FA),
+            color = if (isDark) Color(0xF21C1C1E) else Color(0xFFF8F8FA),
             shadowElevation = 12.dp
         ) {
             Column(Modifier.padding(10.dp)) {
@@ -539,15 +811,20 @@ private fun MarkupColorPanel(
                     Text(
                         text = "Colors",
                         style = MaterialTheme.typography.labelLarge,
-                        color = Color(0xFF111827),
+                        color = if (isDark) Color.White else Color(0xFF111827),
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(16.dp),
+                            tint = if (isDark) Color.White else Color(0xFF111827)
+                        )
                     }
                 }
 
-                SegmentedTabs(selectedMode = mode, onModeSelected = { mode = it })
+                SegmentedTabs(selectedMode = mode, isDark = isDark, onModeSelected = { mode = it })
                 Spacer(Modifier.height(10.dp))
 
                 when (mode) {
@@ -564,13 +841,14 @@ private fun MarkupColorPanel(
                     ColorMode.Sliders -> ColorSliders(
                         selectedColor = selectedColor,
                         onColorSelected = onColorSelected,
+                        isDark = isDark,
                         modifier = Modifier.fillMaxWidth()
                     )
                 }
 
                 Spacer(Modifier.height(10.dp))
-                Text("OPACITY", style = MaterialTheme.typography.labelSmall, color = Color(0xFF6B7280))
-                OpacityStrip()
+                Text("OPACITY", style = MaterialTheme.typography.labelSmall, color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280))
+                OpacityStrip(isDark)
 
                 Spacer(Modifier.height(10.dp))
                 Row(
@@ -582,7 +860,7 @@ private fun MarkupColorPanel(
                             .size(46.dp)
                             .clip(RoundedCornerShape(5.dp))
                             .background(selectedColor)
-                            .border(1.dp, Color(0x22000000), RoundedCornerShape(5.dp))
+                            .border(1.dp, if (isDark) Color(0x33FFFFFF) else Color(0x22000000), RoundedCornerShape(5.dp))
                     )
                     (recentColors + quickColors()).distinct().take(9).forEach { color ->
                         ColorDot(color, color == selectedColor) { onColorSelected(color) }
@@ -597,6 +875,7 @@ private fun MarkupColorPanel(
 private fun MarkupToolPanel(
     visible: Boolean,
     tool: ToolConfig,
+    isDark: Boolean,
     onWidthChanged: (Float) -> Unit,
     onOpacityChanged: (Float) -> Unit,
     onDismiss: () -> Unit,
@@ -610,7 +889,7 @@ private fun MarkupToolPanel(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = Color(0xFFF8F8FA),
+            color = if (isDark) Color(0xF21C1C1E) else Color(0xFFF8F8FA),
             shadowElevation = 12.dp
         ) {
             Column(
@@ -621,16 +900,21 @@ private fun MarkupToolPanel(
                     Text(
                         text = tool.type.displayName(),
                         style = MaterialTheme.typography.labelLarge,
-                        color = Color(0xFF111827),
+                        color = if (isDark) Color.White else Color(0xFF111827),
                         modifier = Modifier.weight(1f)
                     )
                     IconButton(onClick = onDismiss, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Close", modifier = Modifier.size(16.dp))
+                        Icon(
+                            Icons.Default.Close,
+                            contentDescription = "Close",
+                            modifier = Modifier.size(16.dp),
+                            tint = if (isDark) Color.White else Color(0xFF111827)
+                        )
                     }
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Size", style = MaterialTheme.typography.labelMedium, color = Color(0xFF6B7280))
+                    Text("Size", style = MaterialTheme.typography.labelMedium, color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280))
                     Slider(
                         value = tool.baseWidth.coerceIn(tool.widthRange()),
                         onValueChange = onWidthChanged,
@@ -641,7 +925,7 @@ private fun MarkupToolPanel(
                     Text(
                         text = "${tool.baseWidth.toInt()}",
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF6B7280),
+                        color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280),
                         modifier = Modifier.width(24.dp)
                     )
                     StrokePreview(tool)
@@ -649,7 +933,7 @@ private fun MarkupToolPanel(
 
                 if (tool.type == ToolType.MARKER || tool.type == ToolType.HIGHLIGHTER) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text("Opacity", style = MaterialTheme.typography.labelMedium, color = Color(0xFF6B7280))
+                        Text("Opacity", style = MaterialTheme.typography.labelMedium, color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280))
                         Slider(
                             value = tool.opacity,
                             onValueChange = onOpacityChanged,
@@ -666,6 +950,7 @@ private fun MarkupToolPanel(
 @Composable
 private fun SegmentedTabs(
     selectedMode: ColorMode,
+    isDark: Boolean,
     onModeSelected: (ColorMode) -> Unit
 ) {
     val modes = listOf(ColorMode.Grid, ColorMode.Spectrum, ColorMode.Sliders)
@@ -674,8 +959,8 @@ private fun SegmentedTabs(
             .fillMaxWidth()
             .height(28.dp)
             .clip(RoundedCornerShape(6.dp))
-            .background(Color.White)
-            .border(1.dp, Color(0x16000000), RoundedCornerShape(6.dp)),
+            .background(if (isDark) Color(0xFF2A2C31) else Color.White)
+            .border(1.dp, if (isDark) Color(0x26FFFFFF) else Color(0x16000000), RoundedCornerShape(6.dp)),
         verticalAlignment = Alignment.CenterVertically
     ) {
         modes.forEach { mode ->
@@ -684,10 +969,18 @@ private fun SegmentedTabs(
                 modifier = Modifier
                     .weight(1f)
                     .height(28.dp),
-                color = if (mode == selectedMode) Color(0xFFE9EAEE) else Color.Transparent
+                color = if (mode == selectedMode) {
+                    if (isDark) Color(0xFF3A3D44) else Color(0xFFE9EAEE)
+                } else {
+                    Color.Transparent
+                }
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(mode.name, style = MaterialTheme.typography.labelSmall, color = Color(0xFF111827))
+                    Text(
+                        mode.name,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (isDark) Color.White else Color(0xFF111827)
+                    )
                 }
             }
         }
@@ -780,25 +1073,26 @@ private fun SpectrumGrid(
 private fun ColorSliders(
     selectedColor: Color,
     onColorSelected: (Color) -> Unit,
+    isDark: Boolean,
     modifier: Modifier = Modifier
 ) {
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(8.dp))
-            .background(Color.White)
+            .background(if (isDark) Color(0xFF2A2C31) else Color.White)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        ColorSliderRow("R", selectedColor.red, Color.Red) {
+        ColorSliderRow("R", selectedColor.red, Color.Red, isDark) {
             onColorSelected(selectedColor.copy(red = it))
         }
-        ColorSliderRow("G", selectedColor.green, Color(0xFF34C759)) {
+        ColorSliderRow("G", selectedColor.green, Color(0xFF34C759), isDark) {
             onColorSelected(selectedColor.copy(green = it))
         }
-        ColorSliderRow("B", selectedColor.blue, Color(0xFF007AFF)) {
+        ColorSliderRow("B", selectedColor.blue, Color(0xFF007AFF), isDark) {
             onColorSelected(selectedColor.copy(blue = it))
         }
-        ColorSliderRow("A", selectedColor.alpha, Color.Black) {
+        ColorSliderRow("A", selectedColor.alpha, if (isDark) Color.White else Color.Black, isDark) {
             onColorSelected(selectedColor.copy(alpha = it))
         }
     }
@@ -809,10 +1103,11 @@ private fun ColorSliderRow(
     label: String,
     value: Float,
     color: Color,
+    isDark: Boolean,
     onValueChange: (Float) -> Unit
 ) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = Color(0xFF111827), modifier = Modifier.width(16.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = if (isDark) Color.White else Color(0xFF111827), modifier = Modifier.width(16.dp))
         Slider(
             value = value,
             onValueChange = onValueChange,
@@ -850,7 +1145,7 @@ private fun ColorSelectionRing(
 }
 
 @Composable
-private fun OpacityStrip() {
+private fun OpacityStrip(isDark: Boolean) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             modifier = Modifier
@@ -867,10 +1162,10 @@ private fun OpacityStrip() {
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(6.dp))
-                .background(Color.White)
+                .background(if (isDark) Color(0xFF2A2C31) else Color.White)
                 .padding(horizontal = 8.dp, vertical = 4.dp)
         ) {
-            Text("100%", style = MaterialTheme.typography.labelSmall, color = Color(0xFF111827))
+            Text("100%", style = MaterialTheme.typography.labelSmall, color = if (isDark) Color.White else Color(0xFF111827))
         }
     }
 }
@@ -880,15 +1175,20 @@ private fun MarkupToolButton(
     tool: ToolType,
     color: Color,
     selected: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
         modifier = Modifier.size(width = 29.dp, height = 46.dp),
         shape = RoundedCornerShape(10.dp),
-        color = if (selected) Color(0xFFEAF3FF) else Color.Transparent,
+        color = if (selected) {
+            if (isDark) Color(0xFF123A66) else Color(0xFFEAF3FF)
+        } else {
+            Color.Transparent
+        },
         border = if (selected) {
-            androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
+            androidx.compose.foundation.BorderStroke(1.dp, if (isDark) Color(0x660A84FF) else Color(0x33007AFF))
         } else {
             null
         }
@@ -997,14 +1297,19 @@ private fun AppleMarkupGlyph(
 private fun ColorWheelButton(
     selectedColor: Color,
     selected: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
         modifier = Modifier.size(36.dp),
         shape = CircleShape,
-        color = if (selected) Color(0xFFEAF3FF) else Color.Transparent,
-        border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF)) else null
+        color = if (selected) {
+            if (isDark) Color(0xFF123A66) else Color(0xFFEAF3FF)
+        } else {
+            Color.Transparent
+        },
+        border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, if (isDark) Color(0x660A84FF) else Color(0x33007AFF)) else null
     ) {
         Box(contentAlignment = Alignment.Center) {
             ColorWheelGlyph(selectedColor, Modifier.size(27.dp))
@@ -1049,16 +1354,26 @@ private fun ColorWheelGlyph(
 @Composable
 private fun PlusButton(
     selected: Boolean,
+    isDark: Boolean,
     onClick: () -> Unit
 ) {
     Surface(
         onClick = onClick,
         modifier = Modifier.size(30.dp),
         shape = CircleShape,
-        color = if (selected) Color(0xFFE5E7EB) else Color(0xFFF1F2F4)
+        color = if (selected) {
+            if (isDark) Color(0xFF33363B) else Color(0xFFE5E7EB)
+        } else {
+            if (isDark) Color(0xFF2A2C31) else Color(0xFFF1F2F4)
+        }
     ) {
         Box(contentAlignment = Alignment.Center) {
-            Icon(Icons.Default.Add, contentDescription = "Add", tint = Color(0xFF111827), modifier = Modifier.size(18.dp))
+            Icon(
+                Icons.Default.Add,
+                contentDescription = "Add",
+                tint = if (isDark) Color.White else Color(0xFF111827),
+                modifier = Modifier.size(18.dp)
+            )
         }
     }
 }
@@ -1069,7 +1384,8 @@ private fun DockIcon(
     description: String,
     onClick: () -> Unit,
     enabled: Boolean = true,
-    selected: Boolean = false
+    selected: Boolean = false,
+    isDark: Boolean = false
 ) {
     IconButton(
         onClick = onClick,
@@ -1077,26 +1393,57 @@ private fun DockIcon(
         modifier = Modifier
             .size(30.dp)
             .clip(CircleShape)
-            .background(if (selected) Color(0xFFE8F1FF) else Color.Transparent)
+            .background(
+                if (selected) {
+                    if (isDark) Color(0xFF123A66) else Color(0xFFE8F1FF)
+                } else {
+                    Color.Transparent
+                }
+            )
     ) {
         Icon(
             icon,
             contentDescription = description,
             modifier = Modifier.size(17.dp),
-            tint = if (!enabled) Color(0x55111827) else if (selected) Color(0xFF007AFF) else Color(0xFF111827)
+            tint = when {
+                !enabled -> if (isDark) Color(0x55FFFFFF) else Color(0x55111827)
+                selected -> Color(0xFF0A84FF)
+                isDark -> Color.White
+                else -> Color(0xFF111827)
+            }
         )
     }
 }
 
 @Composable
-private fun VerticalHairline() {
+private fun VerticalHairline(isDark: Boolean) {
     Box(
         modifier = Modifier
             .padding(horizontal = 3.dp)
             .width(1.dp)
             .height(24.dp)
-            .background(Color(0x18000000))
+            .background(if (isDark) Color(0x26FFFFFF) else Color(0x18000000))
     )
+}
+
+@Composable
+private fun HorizontalHairline(isDark: Boolean) {
+    Box(
+        modifier = Modifier
+            .padding(vertical = 3.dp)
+            .width(24.dp)
+            .height(1.dp)
+            .background(if (isDark) Color(0x26FFFFFF) else Color(0x18000000))
+    )
+}
+
+@Composable
+private fun DockHairline(isVertical: Boolean, isDark: Boolean) {
+    if (isVertical) {
+        HorizontalHairline(isDark)
+    } else {
+        VerticalHairline(isDark)
+    }
 }
 
 @Composable
@@ -1104,7 +1451,8 @@ private fun TopRoundButton(
     icon: ImageVector,
     description: String,
     onClick: () -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    isDark: Boolean = false
 ) {
     Surface(
         onClick = onClick,
@@ -1113,14 +1461,18 @@ private fun TopRoundButton(
             .padding(horizontal = 1.dp)
             .size(30.dp),
         shape = CircleShape,
-        color = Color(0xFFF2F3F5).copy(alpha = if (enabled) 1f else 0.6f),
+        color = (if (isDark) Color(0xFF2A2C31) else Color(0xFFF2F3F5)).copy(alpha = if (enabled) 1f else 0.6f),
         shadowElevation = 0.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 icon,
                 contentDescription = description,
-                tint = if (enabled) Color(0xFF111827) else Color(0x55111827),
+                tint = if (enabled) {
+                    if (isDark) Color.White else Color(0xFF111827)
+                } else {
+                    if (isDark) Color(0x55FFFFFF) else Color(0x55111827)
+                },
                 modifier = Modifier.size(16.dp)
             )
         }
