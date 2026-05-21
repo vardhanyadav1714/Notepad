@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -27,10 +28,8 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.Redo
 import androidx.compose.material.icons.automirrored.filled.Undo
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -155,7 +154,8 @@ fun ModernDrawingScreen(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 8.dp, top = 8.dp, end = 8.dp),
+                    .statusBarsPadding()
+                    .padding(start = 10.dp, top = 10.dp, end = 10.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
                 MarkupDock(
@@ -350,8 +350,6 @@ private fun MarkupDock(
                 enabled = !isCollaborationBusy,
                 selected = collaborationPanelOpen || isCollaborating
             )
-            TopRoundButton(Icons.Default.MoreHoriz, "More", {}, enabled = false)
-            TopDoneButton(onClick = onBack)
         }
     }
 }
@@ -1084,28 +1082,6 @@ private fun TopRoundButton(
                 contentDescription = description,
                 tint = if (enabled) Color(0xFF111827) else Color(0x55111827),
                 modifier = Modifier.size(16.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun TopDoneButton(onClick: () -> Unit) {
-    Surface(
-        onClick = onClick,
-        modifier = Modifier
-            .padding(start = 3.dp)
-            .size(30.dp),
-        shape = CircleShape,
-        color = Color(0xFFFFCC00),
-        shadowElevation = 0.dp
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                Icons.Default.Check,
-                contentDescription = "Done",
-                tint = Color.White,
-                modifier = Modifier.size(17.dp)
             )
         }
     }
