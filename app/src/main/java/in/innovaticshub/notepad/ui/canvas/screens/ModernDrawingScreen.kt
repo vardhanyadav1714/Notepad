@@ -288,8 +288,10 @@ fun ModernDrawingScreen(
                         visible = activePanel == MarkupPanel.Colors,
                         selectedColor = uiState.currentTool.color,
                         recentColors = uiState.recentColors,
+                        opacity = uiState.currentTool.opacity,
                         isDark = isDarkCanvas,
                         onColorSelected = { viewModel.setColor(it) },
+                        onOpacityChanged = { viewModel.setOpacity(it) },
                         onDismiss = { activePanel = null },
                         modifier = Modifier
                             .fillMaxWidth()
@@ -557,8 +559,10 @@ private fun LandscapePanelColumn(
             visible = activePanel == MarkupPanel.Colors,
             selectedColor = selectedColor,
             recentColors = recentColors,
+            opacity = tool.opacity,
             isDark = isDark,
             onColorSelected = onColorSelected,
+            onOpacityChanged = onOpacityChanged,
             onDismiss = onDismiss,
             modifier = Modifier.fillMaxWidth()
         )
@@ -785,8 +789,10 @@ private fun MarkupColorPanel(
     visible: Boolean,
     selectedColor: Color,
     recentColors: List<Color>,
+    opacity: Float,
     isDark: Boolean,
     onColorSelected: (Color) -> Unit,
+    onOpacityChanged: (Float) -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -848,7 +854,11 @@ private fun MarkupColorPanel(
 
                 Spacer(Modifier.height(10.dp))
                 Text("OPACITY", style = MaterialTheme.typography.labelSmall, color = if (isDark) Color(0xFFB9C0CC) else Color(0xFF6B7280))
-                OpacityStrip(isDark)
+                OpacityStrip(
+                    value = opacity,
+                    isDark = isDark,
+                    onValueChange = onOpacityChanged
+                )
 
                 Spacer(Modifier.height(10.dp))
                 Row(
@@ -1145,27 +1155,54 @@ private fun ColorSelectionRing(
 }
 
 @Composable
-private fun OpacityStrip(isDark: Boolean) {
+private fun OpacityStrip(
+    value: Float,
+    isDark: Boolean,
+    onValueChange: (Float) -> Unit
+) {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         Box(
             modifier = Modifier
-                .height(24.dp)
-                .weight(1f)
-                .clip(RoundedCornerShape(4.dp))
-                .background(
-                    Brush.horizontalGradient(
-                        listOf(Color.White.copy(alpha = 0f), Color.Black)
+                .height(34.dp)
+                .weight(1f),
+            contentAlignment = Alignment.Center
+        ) {
+            Box(
+                modifier = Modifier
+                    .height(18.dp)
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(
+                        Brush.horizontalGradient(
+                            listOf(Color.Transparent, if (isDark) Color.White else Color.Black)
+                        )
                     )
-                )
-                .border(1.dp, Color(0x18000000), RoundedCornerShape(4.dp))
-        )
+                    .border(
+                        1.dp,
+                        if (isDark) Color(0x26FFFFFF) else Color(0x18000000),
+                        RoundedCornerShape(4.dp)
+                    )
+            )
+            Slider(
+                value = value.coerceIn(0.05f, 1f),
+                onValueChange = onValueChange,
+                valueRange = 0.05f..1f,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
         Box(
             modifier = Modifier
+                .width(52.dp)
                 .clip(RoundedCornerShape(6.dp))
                 .background(if (isDark) Color(0xFF2A2C31) else Color.White)
-                .padding(horizontal = 8.dp, vertical = 4.dp)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Text("100%", style = MaterialTheme.typography.labelSmall, color = if (isDark) Color.White else Color(0xFF111827))
+            Text(
+                "${(value.coerceIn(0.05f, 1f) * 100).toInt()}%",
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isDark) Color.White else Color(0xFF111827)
+            )
         }
     }
 }
