@@ -151,7 +151,9 @@ fun ZoomableCanvas(
                 drawAdaptiveGrid(zoomState.scale)
             }
 
-            uiState.strokes.forEach { stroke -> drawStroke(stroke) }
+            uiState.strokes.forEach { stroke ->
+                drawStroke(stroke, selected = stroke.id in uiState.selectedStrokeIds)
+            }
             currentStroke?.let { drawStroke(it) }
         }
 
@@ -189,9 +191,26 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(sc
     }
 }
 
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStroke(stroke: Stroke) {
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStroke(
+    stroke: Stroke,
+    selected: Boolean = false
+) {
     val tool = stroke.toolConfig
     if (tool.isEraser) return
+
+    if (tool.type == ToolType.LASSO) {
+        drawPath(
+            path = stroke.path,
+            color = Color(0xFF007AFF),
+            style = ComposeStroke(
+                width = (2f / 1f).coerceAtLeast(1.5f),
+                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 7f))
+            )
+        )
+        return
+    }
 
     val style = ComposeStroke(
         width = tool.strokeWidth(),
@@ -230,5 +249,21 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStroke(stroke: 
                 style = style
             )
         }
+    }
+
+    if (selected) {
+        val bounds = stroke.bounds
+        drawRect(
+            color = Color(0xFF007AFF).copy(alpha = 0.18f),
+            topLeft = Offset(bounds.left - 8f, bounds.top - 8f),
+            size = Size(
+                width = (bounds.right - bounds.left + 16f).coerceAtLeast(12f),
+                height = (bounds.bottom - bounds.top + 16f).coerceAtLeast(12f)
+            ),
+            style = ComposeStroke(
+                width = 2f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
+            )
+        )
     }
 }

@@ -226,7 +226,16 @@ data class ToolConfig(
                 ToolType.BRUSH -> INK_BRUSH
                 ToolType.CALLIGRAPHY -> INK_BRUSH.copy(style = DrawingStyle.CALIGRAPHY)
                 ToolType.ERASER -> MEDIUM_ERASER
-                ToolType.LASSO, ToolType.SHAPE, ToolType.TEXT -> MEDIUM_PEN
+                ToolType.LASSO -> ToolConfig(
+                    type = ToolType.LASSO,
+                    style = DrawingStyle.DOTTED,
+                    color = Color(0xFF007AFF),
+                    baseWidth = 2f,
+                    opacity = 0.95f,
+                    usePressure = false
+                )
+                ToolType.SHAPE -> ToolConfig(type = ToolType.SHAPE, color = Color(0xFF007AFF), baseWidth = 3f, usePressure = false)
+                ToolType.TEXT -> ToolConfig(type = ToolType.TEXT, color = Color(0xFF1C1C1E), baseWidth = 2f, usePressure = false)
             }
         }
     }

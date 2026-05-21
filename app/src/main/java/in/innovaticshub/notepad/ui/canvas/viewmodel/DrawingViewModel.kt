@@ -32,6 +32,7 @@ data class DrawingUiState(
     val showGrid: Boolean = true,
     val recentColors: List<Color> = defaultRecentColors(),
     val showToolSettings: Boolean = false,
+    val selectedStrokeIds: Set<String> = emptySet(),
     val collaborationRoomCode: String? = null,
     val collaborationStatus: String? = null,
     val isCollaborationBusy: Boolean = false
@@ -86,6 +87,15 @@ class DrawingViewModel : ViewModel() {
         }
 
         val before = _uiState.value.strokes
+
+        if (stroke.toolConfig.type == ToolType.LASSO) {
+            selectStrokesWithLasso(stroke)
+            currentStrokeBuilder = null
+            currentStroke = null
+            _uiState.update { it.copy(isDrawing = false) }
+            return
+        }
+
         history.pushBeforeChange(before)
 
         val after = if (stroke.toolConfig.isEraser) {
@@ -110,17 +120,25 @@ class DrawingViewModel : ViewModel() {
     fun undo() {
         val restored = history.undo(_uiState.value.strokes) ?: return
         applyStrokes(restored)
+        clearSelection()
     }
 
     fun redo() {
         val restored = history.redo(_uiState.value.strokes) ?: return
         applyStrokes(restored)
+        clearSelection()
     }
 
     fun clearCanvas() {
-        if (_uiState.value.strokes.isEmpty()) return
-        history.pushBeforeChange(_uiState.value.strokes)
+        val state = _uiState.value
+        if (state.selectedStrokeIds.isNotEmpty()) {
+            deleteSelectedStrokes()
+            return
+        }
+        if (state.strokes.isEmpty()) return
+        history.pushBeforeChange(state.strokes)
         applyStrokes(emptyList())
+        clearSelection()
     }
 
     fun setTool(type: ToolType) {
@@ -132,7 +150,8 @@ class DrawingViewModel : ViewModel() {
         _uiState.update {
             it.copy(
                 currentTool = config,
-                showToolSettings = type != ToolType.LASSO && type != ToolType.SHAPE && type != ToolType.TEXT
+                showToolSettings = type != ToolType.LASSO && type != ToolType.SHAPE && type != ToolType.TEXT,
+                selectedStrokeIds = if (type == ToolType.LASSO) it.selectedStrokeIds else emptySet()
             )
         }
     }
@@ -254,13 +273,66 @@ class DrawingViewModel : ViewModel() {
     }
 
     private fun applyStrokes(strokes: List<Stroke>) {
+        val ids = strokes.mapTo(mutableSetOf()) { it.id }
         _uiState.update {
             it.copy(
                 strokes = strokes,
+                selectedStrokeIds = it.selectedStrokeIds.filterTo(mutableSetOf()) { id -> id in ids },
                 canUndo = history.canUndo,
                 canRedo = history.canRedo
             )
         }
+    }
+
+    private fun deleteSelectedStrokes() {
+        val state = _uiState.value
+        if (state.selectedStrokeIds.isEmpty()) return
+        history.pushBeforeChange(state.strokes)
+        applyStrokes(state.strokes.filterNot { it.id in state.selectedStrokeIds })
+        clearSelection()
+    }
+
+    private fun clearSelection() {
+        _uiState.update { it.copy(selectedStrokeIds = emptySet()) }
+    }
+
+    private fun selectStrokesWithLasso(lassoStroke: Stroke) {
+        val polygon = lassoStroke.points
+        if (polygon.size < 3) {
+            clearSelection()
+            return
+        }
+
+        val selected = _uiState.value.strokes
+            .filterNot { it.toolConfig.isEraser || it.toolConfig.type == ToolType.LASSO }
+            .filter { stroke ->
+                stroke.points.any { point -> pointInPolygon(point, polygon) } ||
+                    pointInPolygon(
+                        StrokePoint(
+                            x = (stroke.bounds.left + stroke.bounds.right) / 2f,
+                            y = (stroke.bounds.top + stroke.bounds.bottom) / 2f
+                        ),
+                        polygon
+                    )
+            }
+            .mapTo(mutableSetOf()) { it.id }
+
+        _uiState.update { it.copy(selectedStrokeIds = selected) }
+    }
+
+    private fun pointInPolygon(point: StrokePoint, polygon: List<StrokePoint>): Boolean {
+        var inside = false
+        var previous = polygon.last()
+        polygon.forEach { current ->
+            val crosses = (current.y > point.y) != (previous.y > point.y)
+            if (crosses) {
+                val xAtY = (previous.x - current.x) * (point.y - current.y) /
+                    ((previous.y - current.y).takeIf { it != 0f } ?: 0.0001f) + current.x
+                if (point.x < xAtY) inside = !inside
+            }
+            previous = current
+        }
+        return inside
     }
 
     private fun setCollaborationBusy(status: String) {
