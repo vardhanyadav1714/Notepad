@@ -13,13 +13,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -34,10 +31,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.MoreHoriz
-import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.ZoomIn
-import androidx.compose.material.icons.filled.ZoomOut
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -158,75 +152,26 @@ fun ModernDrawingScreen(
             exit = fadeOut(),
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
-            AppleTopControls(
-                canUndo = uiState.canUndo,
-                canRedo = uiState.canRedo,
-                onBack = onBackClick,
-                onUndo = { viewModel.undo() },
-                onRedo = { viewModel.redo() },
-                onClear = { viewModel.clearCanvas() },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(start = 12.dp, top = 6.dp, end = 12.dp)
-            )
-        }
-
-        AnimatedVisibility(
-            visible = chromeVisible,
-            enter = fadeIn(),
-            exit = fadeOut(),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 8.dp, end = 8.dp, bottom = 8.dp),
+                    .padding(start = 8.dp, top = 8.dp, end = 8.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                MarkupColorPanel(
-                    visible = activePanel == MarkupPanel.Colors,
-                    selectedColor = uiState.currentTool.color,
-                    recentColors = uiState.recentColors,
-                    onColorSelected = { viewModel.setColor(it) },
-                    onDismiss = { activePanel = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp)
-                )
-
-                MarkupToolPanel(
-                    visible = activePanel == MarkupPanel.Tools,
-                    tool = uiState.currentTool,
-                    onWidthChanged = { viewModel.setStrokeWidth(it) },
-                    onOpacityChanged = { viewModel.setOpacity(it) },
-                    onDismiss = { activePanel = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp)
-                )
-
-                MarkupCollaborationPanel(
-                    visible = activePanel == MarkupPanel.Collaboration,
-                    roomCode = uiState.collaborationRoomCode,
-                    status = uiState.collaborationStatus,
-                    busy = uiState.isCollaborationBusy,
-                    onCreate = { viewModel.createCollaborationRoom() },
-                    onShare = { shareRoom(it) },
-                    onLeave = { viewModel.leaveCollaborationRoom() },
-                    onDismiss = { activePanel = null },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(start = 10.dp, end = 10.dp, bottom = 8.dp)
-                )
-
                 MarkupDock(
                     selected = uiState.currentTool.type,
                     currentColor = uiState.currentTool.color,
+                    canUndo = uiState.canUndo,
+                    canRedo = uiState.canRedo,
                     colorPanelOpen = activePanel == MarkupPanel.Colors,
                     toolsPanelOpen = activePanel == MarkupPanel.Tools,
                     collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
                     isCollaborating = uiState.collaborationRoomCode != null,
                     isCollaborationBusy = uiState.isCollaborationBusy,
+                    onBack = onBackClick,
+                    onUndo = { viewModel.undo() },
+                    onRedo = { viewModel.redo() },
+                    onClear = { viewModel.clearCanvas() },
                     onToolSelected = {
                         viewModel.setTool(it)
                         activePanel = null
@@ -248,6 +193,42 @@ fun ModernDrawingScreen(
                     },
                     modifier = Modifier.fillMaxWidth()
                 )
+
+                MarkupColorPanel(
+                    visible = activePanel == MarkupPanel.Colors,
+                    selectedColor = uiState.currentTool.color,
+                    recentColors = uiState.recentColors,
+                    onColorSelected = { viewModel.setColor(it) },
+                    onDismiss = { activePanel = null },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                )
+
+                MarkupToolPanel(
+                    visible = activePanel == MarkupPanel.Tools,
+                    tool = uiState.currentTool,
+                    onWidthChanged = { viewModel.setStrokeWidth(it) },
+                    onOpacityChanged = { viewModel.setOpacity(it) },
+                    onDismiss = { activePanel = null },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                )
+
+                MarkupCollaborationPanel(
+                    visible = activePanel == MarkupPanel.Collaboration,
+                    roomCode = uiState.collaborationRoomCode,
+                    status = uiState.collaborationStatus,
+                    busy = uiState.isCollaborationBusy,
+                    onCreate = { viewModel.createCollaborationRoom() },
+                    onShare = { shareRoom(it) },
+                    onLeave = { viewModel.leaveCollaborationRoom() },
+                    onDismiss = { activePanel = null },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 10.dp, top = 8.dp, end = 10.dp)
+                )
             }
         }
 
@@ -266,38 +247,20 @@ fun ModernDrawingScreen(
 }
 
 @Composable
-private fun AppleTopControls(
-    canUndo: Boolean,
-    canRedo: Boolean,
-    onBack: () -> Unit,
-    onUndo: () -> Unit,
-    onRedo: () -> Unit,
-    onClear: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    Row(
-        modifier = modifier,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        TopRoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
-        Spacer(Modifier.weight(1f))
-        TopRoundButton(Icons.AutoMirrored.Filled.Undo, "Undo", onUndo, enabled = canUndo)
-        TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", onRedo, enabled = canRedo)
-        TopRoundButton(Icons.Default.Delete, "Delete selected", onClear)
-        TopRoundButton(Icons.Default.MoreHoriz, "More", {}, enabled = false)
-        TopDoneButton(onClick = onBack)
-    }
-}
-
-@Composable
 private fun MarkupDock(
     selected: ToolType,
     currentColor: Color,
+    canUndo: Boolean,
+    canRedo: Boolean,
     colorPanelOpen: Boolean,
     toolsPanelOpen: Boolean,
     collaborationPanelOpen: Boolean,
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
+    onBack: () -> Unit,
+    onUndo: () -> Unit,
+    onRedo: () -> Unit,
+    onClear: () -> Unit,
     onToolSelected: (ToolType) -> Unit,
     onColorClick: () -> Unit,
     onAddClick: () -> Unit,
@@ -315,7 +278,7 @@ private fun MarkupDock(
     )
 
     Surface(
-        modifier = modifier.padding(horizontal = 10.dp),
+        modifier = modifier.padding(horizontal = 4.dp),
         shape = RoundedCornerShape(28.dp),
         color = Color.White.copy(alpha = 0.96f),
         shadowElevation = 16.dp,
@@ -324,10 +287,17 @@ private fun MarkupDock(
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 10.dp, vertical = 7.dp),
+                .padding(horizontal = 8.dp, vertical = 7.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            TopRoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
+            TopRoundButton(Icons.AutoMirrored.Filled.Undo, "Undo", onUndo, enabled = canUndo)
+            TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", onRedo, enabled = canRedo)
+            TopRoundButton(Icons.Default.Delete, "Delete selected", onClear)
+
+            Spacer(Modifier.width(4.dp))
+
             tools.forEach { tool ->
                 MarkupToolButton(
                     tool = tool,
@@ -355,6 +325,8 @@ private fun MarkupDock(
                 enabled = !isCollaborationBusy,
                 selected = collaborationPanelOpen || isCollaborating
             )
+            TopRoundButton(Icons.Default.MoreHoriz, "More", {}, enabled = false)
+            TopDoneButton(onClick = onBack)
         }
     }
 }
