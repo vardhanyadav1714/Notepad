@@ -56,6 +56,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -631,10 +632,17 @@ private fun MarkupToolPanel(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("Size", style = MaterialTheme.typography.labelMedium, color = Color(0xFF6B7280))
                     Slider(
-                        value = tool.baseWidth,
+                        value = tool.baseWidth.coerceIn(tool.widthRange()),
                         onValueChange = onWidthChanged,
-                        valueRange = if (tool.type == ToolType.ERASER) 8f..80f else 1f..48f,
+                        valueRange = tool.widthRange(),
+                        steps = 0,
                         modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = "${tool.baseWidth.toInt()}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color(0xFF6B7280),
+                        modifier = Modifier.width(24.dp)
                     )
                     StrokePreview(tool)
                 }
@@ -907,8 +915,10 @@ private fun AppleMarkupGlyph(
         val w = size.width
         val h = size.height
         val cx = w / 2f
-        val body = Color(0xFFF3F4F6)
-        val outline = Color(0xFFBFC3C8)
+        val body = Color(0xFFF5F6F8)
+        val outline = Color(0xFF8E949C)
+        val shadow = Color(0x24000000)
+        val metal = Color(0xFFD8DCE1)
         val ink = if (tool == ToolType.ERASER) Color(0xFFE77683) else color
 
         if (selected) {
@@ -917,37 +927,72 @@ private fun AppleMarkupGlyph(
 
         when (tool) {
             ToolType.PEN -> {
-                drawLine(outline, Offset(cx, h * 0.10f), Offset(cx, h * 0.78f), strokeWidth = w * 0.18f, cap = StrokeCap.Round)
-                drawLine(ink, Offset(cx, h * 0.62f), Offset(cx, h * 0.90f), strokeWidth = w * 0.09f, cap = StrokeCap.Round)
-                drawLine(Color.White, Offset(cx, h * 0.20f), Offset(cx, h * 0.54f), strokeWidth = w * 0.08f, cap = StrokeCap.Round)
+                drawRoundRect(shadow, Offset(cx - w * 0.13f, h * 0.10f), Size(w * 0.26f, h * 0.60f), CornerRadius(w * 0.08f, w * 0.08f))
+                drawRoundRect(metal, Offset(cx - w * 0.12f, h * 0.08f), Size(w * 0.24f, h * 0.62f), CornerRadius(w * 0.08f, w * 0.08f))
+                drawRoundRect(Color.White, Offset(cx - w * 0.065f, h * 0.16f), Size(w * 0.05f, h * 0.42f), CornerRadius(w * 0.03f, w * 0.03f))
+                val nib = Path().apply {
+                    moveTo(cx - w * 0.16f, h * 0.69f)
+                    lineTo(cx + w * 0.16f, h * 0.69f)
+                    lineTo(cx, h * 0.92f)
+                    close()
+                }
+                drawPath(nib, ink)
+                drawCircle(Color.White.copy(alpha = 0.9f), radius = w * 0.035f, center = Offset(cx, h * 0.78f))
             }
             ToolType.PENCIL -> {
-                drawRoundRect(ink, Offset(cx - w * 0.12f, h * 0.17f), Size(w * 0.24f, h * 0.54f), CornerRadius(w * 0.06f, w * 0.06f))
-                drawLine(Color(0xFF6B7280), Offset(cx, h * 0.68f), Offset(cx, h * 0.91f), strokeWidth = w * 0.10f, cap = StrokeCap.Round)
-                drawLine(Color.White, Offset(cx, h * 0.24f), Offset(cx, h * 0.58f), strokeWidth = w * 0.05f)
+                val wood = Color(0xFFE4B35B)
+                drawRoundRect(ink, Offset(cx - w * 0.13f, h * 0.12f), Size(w * 0.26f, h * 0.56f), CornerRadius(w * 0.04f, w * 0.04f))
+                drawLine(Color.White.copy(alpha = 0.65f), Offset(cx - w * 0.05f, h * 0.18f), Offset(cx - w * 0.05f, h * 0.62f), strokeWidth = w * 0.035f)
+                val woodTip = Path().apply {
+                    moveTo(cx - w * 0.13f, h * 0.68f)
+                    lineTo(cx + w * 0.13f, h * 0.68f)
+                    lineTo(cx, h * 0.86f)
+                    close()
+                }
+                drawPath(woodTip, wood)
+                val graphite = Path().apply {
+                    moveTo(cx - w * 0.055f, h * 0.83f)
+                    lineTo(cx + w * 0.055f, h * 0.83f)
+                    lineTo(cx, h * 0.94f)
+                    close()
+                }
+                drawPath(graphite, Color(0xFF3A3A3C))
             }
             ToolType.MARKER -> {
-                drawRoundRect(body, Offset(cx - w * 0.18f, h * 0.12f), Size(w * 0.36f, h * 0.62f), CornerRadius(w * 0.08f, w * 0.08f))
-                drawLine(ink, Offset(cx, h * 0.38f), Offset(cx, h * 0.74f), strokeWidth = w * 0.30f, cap = StrokeCap.Square)
-                drawLine(outline, Offset(cx, h * 0.74f), Offset(cx, h * 0.91f), strokeWidth = w * 0.15f, cap = StrokeCap.Square)
+                drawRoundRect(body, Offset(cx - w * 0.20f, h * 0.09f), Size(w * 0.40f, h * 0.58f), CornerRadius(w * 0.09f, w * 0.09f))
+                drawRoundRect(ink, Offset(cx - w * 0.18f, h * 0.38f), Size(w * 0.36f, h * 0.30f), CornerRadius(w * 0.03f, w * 0.03f))
+                drawRoundRect(outline, Offset(cx - w * 0.12f, h * 0.67f), Size(w * 0.24f, h * 0.21f), CornerRadius(w * 0.02f, w * 0.02f))
+                drawRoundRect(Color.White.copy(alpha = 0.8f), Offset(cx - w * 0.12f, h * 0.17f), Size(w * 0.06f, h * 0.17f), CornerRadius(w * 0.03f, w * 0.03f))
             }
             ToolType.HIGHLIGHTER -> {
-                drawRoundRect(body, Offset(cx - w * 0.20f, h * 0.12f), Size(w * 0.40f, h * 0.62f), CornerRadius(w * 0.08f, w * 0.08f))
-                drawLine(ink.copy(alpha = 0.78f), Offset(cx, h * 0.34f), Offset(cx, h * 0.75f), strokeWidth = w * 0.34f, cap = StrokeCap.Square)
-                drawLine(outline, Offset(cx - w * 0.14f, h * 0.88f), Offset(cx + w * 0.14f, h * 0.88f), strokeWidth = w * 0.11f, cap = StrokeCap.Square)
+                drawRoundRect(body, Offset(cx - w * 0.19f, h * 0.08f), Size(w * 0.38f, h * 0.56f), CornerRadius(w * 0.08f, w * 0.08f))
+                drawRoundRect(ink.copy(alpha = 0.72f), Offset(cx - w * 0.21f, h * 0.38f), Size(w * 0.42f, h * 0.30f), CornerRadius(w * 0.02f, w * 0.02f))
+                val chisel = Path().apply {
+                    moveTo(cx - w * 0.21f, h * 0.68f)
+                    lineTo(cx + w * 0.21f, h * 0.68f)
+                    lineTo(cx + w * 0.13f, h * 0.88f)
+                    lineTo(cx - w * 0.13f, h * 0.88f)
+                    close()
+                }
+                drawPath(chisel, outline)
             }
             ToolType.ERASER -> {
-                drawRoundRect(ink, Offset(cx - w * 0.18f, h * 0.18f), Size(w * 0.36f, h * 0.48f), CornerRadius(w * 0.09f, w * 0.09f))
-                drawRoundRect(Color(0xFFF3F4F6), Offset(cx - w * 0.18f, h * 0.60f), Size(w * 0.36f, h * 0.18f), CornerRadius(w * 0.06f, w * 0.06f))
-                drawLine(outline, Offset(cx - w * 0.17f, h * 0.80f), Offset(cx + w * 0.17f, h * 0.80f), strokeWidth = w * 0.08f, cap = StrokeCap.Round)
+                drawRoundRect(ink, Offset(cx - w * 0.21f, h * 0.15f), Size(w * 0.42f, h * 0.36f), CornerRadius(w * 0.10f, w * 0.10f))
+                drawRoundRect(Color.White, Offset(cx - w * 0.21f, h * 0.46f), Size(w * 0.42f, h * 0.25f), CornerRadius(w * 0.07f, w * 0.07f))
+                drawRoundRect(outline, Offset(cx - w * 0.18f, h * 0.72f), Size(w * 0.36f, h * 0.12f), CornerRadius(w * 0.04f, w * 0.04f))
             }
             ToolType.LASSO -> {
-                drawCircle(outline, radius = w * 0.26f, center = Offset(cx, h * 0.46f), style = Stroke(width = w * 0.08f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 5f))))
-                drawLine(outline, Offset(cx + w * 0.18f, h * 0.66f), Offset(cx + w * 0.31f, h * 0.86f), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
+                val loop = Path().apply {
+                    moveTo(cx - w * 0.28f, h * 0.45f)
+                    cubicTo(cx - w * 0.28f, h * 0.22f, cx + w * 0.28f, h * 0.22f, cx + w * 0.28f, h * 0.46f)
+                    cubicTo(cx + w * 0.28f, h * 0.70f, cx - w * 0.28f, h * 0.70f, cx - w * 0.28f, h * 0.45f)
+                }
+                drawPath(loop, Color(0xFF007AFF), style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))))
+                drawLine(Color(0xFF007AFF), Offset(cx + w * 0.18f, h * 0.66f), Offset(cx + w * 0.34f, h * 0.88f), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
             }
             else -> {
-                drawLine(outline, Offset(cx, h * 0.10f), Offset(cx, h * 0.56f), strokeWidth = w * 0.14f, cap = StrokeCap.Round)
-                drawLine(ink, Offset(cx, h * 0.54f), Offset(cx - w * 0.13f, h * 0.90f), strokeWidth = w * 0.12f, cap = StrokeCap.Round)
+                drawLine(outline, Offset(cx, h * 0.10f), Offset(cx, h * 0.55f), strokeWidth = w * 0.16f, cap = StrokeCap.Round)
+                drawLine(ink, Offset(cx, h * 0.52f), Offset(cx - w * 0.16f, h * 0.90f), strokeWidth = w * 0.12f, cap = StrokeCap.Round)
             }
         }
     }
@@ -1105,19 +1150,31 @@ private fun ColorDot(
 @Composable
 private fun StrokePreview(tool: ToolConfig) {
     val color = if (tool.type == ToolType.ERASER) Color(0xFF9CA3AF) else tool.effectiveColor()
-    Box(
+    Canvas(
         modifier = Modifier
-            .width(42.dp)
-            .height(28.dp),
-        contentAlignment = Alignment.Center
+            .width(50.dp)
+            .height(30.dp)
     ) {
-        Box(
-            modifier = Modifier
-                .width(34.dp)
-                .height(tool.baseWidth.coerceIn(2f, 18f).dp)
-                .clip(CircleShape)
-                .background(color)
+        val previewWidth = tool.strokeWidth().coerceIn(1.5f, 22f)
+        drawLine(
+            color = color,
+            start = Offset(size.width * 0.16f, size.height / 2f),
+            end = Offset(size.width * 0.84f, size.height / 2f),
+            strokeWidth = previewWidth,
+            cap = StrokeCap.Round
         )
+    }
+}
+
+private fun ToolConfig.widthRange(): ClosedFloatingPointRange<Float> {
+    return when (type) {
+        ToolType.PEN -> 0.6f..18f
+        ToolType.PENCIL -> 0.4f..12f
+        ToolType.MARKER -> 2f..30f
+        ToolType.HIGHLIGHTER -> 3f..36f
+        ToolType.BRUSH, ToolType.CALLIGRAPHY -> 1f..42f
+        ToolType.ERASER -> 5f..76f
+        ToolType.LASSO, ToolType.SHAPE, ToolType.TEXT -> 1f..24f
     }
 }
 
