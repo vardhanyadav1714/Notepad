@@ -60,6 +60,7 @@ class DrawingViewModel : ViewModel() {
     private var currentStrokeBuilder: StrokeBuilder? = null
     private var currentStroke: Stroke? = null
     private var strokeListener: CollaborationSubscription? = null
+    private var selectionTransformActive = false
     private val appliedRemoteStrokeIds = mutableSetOf<String>()
 
     fun startStroke(
@@ -204,6 +205,41 @@ class DrawingViewModel : ViewModel() {
         }
     }
 
+    fun beginSelectionTransform() {
+        val state = _uiState.value
+        if (selectionTransformActive || state.selectedStrokeIds.isEmpty()) return
+        history.pushBeforeChange(state.strokes)
+        selectionTransformActive = true
+    }
+
+    fun endSelectionTransform() {
+        selectionTransformActive = false
+        _uiState.update {
+            it.copy(
+                canUndo = history.canUndo,
+                canRedo = history.canRedo
+            )
+        }
+    }
+
+    fun moveSelectedStrokesBy(dx: Float, dy: Float) {
+        if (dx == 0f && dy == 0f) return
+        transformSelectedStrokes { point ->
+            point.copy(x = point.x + dx, y = point.y + dy)
+        }
+    }
+
+    fun scaleSelectedStrokesBy(scale: Float, pivotX: Float, pivotY: Float) {
+        val safeScale = scale.coerceIn(0.08f, 12f)
+        if (safeScale == 1f) return
+        transformSelectedStrokes { point ->
+            point.copy(
+                x = pivotX + (point.x - pivotX) * safeScale,
+                y = pivotY + (point.y - pivotY) * safeScale
+            )
+        }
+    }
+
     fun createCollaborationRoom() {
         if (_uiState.value.isCollaborationBusy) return
         viewModelScope.launch {
@@ -282,6 +318,26 @@ class DrawingViewModel : ViewModel() {
                 canRedo = history.canRedo
             )
         }
+    }
+
+    private fun transformSelectedStrokes(transform: (StrokePoint) -> StrokePoint) {
+        val selectedIds = _uiState.value.selectedStrokeIds
+        if (selectedIds.isEmpty()) return
+
+        val transformed = _uiState.value.strokes.map { stroke ->
+            if (stroke.id !in selectedIds) {
+                stroke
+            } else {
+                rebuildStroke(stroke, stroke.points.map(transform))
+            }
+        }
+        applyStrokes(transformed)
+    }
+
+    private fun rebuildStroke(stroke: Stroke, points: List<StrokePoint>): Stroke {
+        val builder = StrokeBuilder(stroke.toolConfig, minPointDistance = 0f)
+        points.forEach(builder::addPoint)
+        return builder.build().copy(id = stroke.id)
     }
 
     private fun deleteSelectedStrokes() {

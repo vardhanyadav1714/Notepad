@@ -279,16 +279,17 @@ private fun MarkupDock(
 
     Surface(
         modifier = modifier.padding(horizontal = 4.dp),
-        shape = RoundedCornerShape(28.dp),
-        color = Color.White.copy(alpha = 0.96f),
-        shadowElevation = 16.dp,
+        shape = RoundedCornerShape(24.dp),
+        color = Color(0xFFFBFBFD).copy(alpha = 0.97f),
+        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x18000000)),
+        shadowElevation = 12.dp,
         tonalElevation = 0.dp
     ) {
         Row(
             modifier = Modifier
                 .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 8.dp, vertical = 7.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 7.dp, vertical = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             TopRoundButton(Icons.AutoMirrored.Filled.ArrowBack, "Back", onBack)
@@ -296,7 +297,7 @@ private fun MarkupDock(
             TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", onRedo, enabled = canRedo)
             TopRoundButton(Icons.Default.Delete, "Delete selected", onClear)
 
-            Spacer(Modifier.width(4.dp))
+            VerticalHairline()
 
             tools.forEach { tool ->
                 MarkupToolButton(
@@ -307,7 +308,7 @@ private fun MarkupDock(
                 )
             }
 
-            Spacer(Modifier.width(8.dp))
+            VerticalHairline()
 
             ColorWheelButton(
                 selectedColor = currentColor,
@@ -798,16 +799,21 @@ private fun MarkupToolButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(width = 32.dp, height = 50.dp),
-        shape = RoundedCornerShape(8.dp),
-        color = Color.Transparent
+        modifier = Modifier.size(width = 29.dp, height = 46.dp),
+        shape = RoundedCornerShape(10.dp),
+        color = if (selected) Color(0xFFEAF3FF) else Color.Transparent,
+        border = if (selected) {
+            androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
+        } else {
+            null
+        }
     ) {
         Box(contentAlignment = Alignment.Center) {
             AppleMarkupGlyph(
                 tool = tool,
                 color = color,
                 selected = selected,
-                modifier = Modifier.size(width = 25.dp, height = 44.dp)
+                modifier = Modifier.size(width = 23.dp, height = 40.dp)
             )
         }
     }
@@ -829,12 +835,7 @@ private fun AppleMarkupGlyph(
         val ink = if (tool == ToolType.ERASER) Color(0xFFE77683) else color
 
         if (selected) {
-            drawRoundRect(
-                color = Color(0xFF007AFF).copy(alpha = 0.16f),
-                topLeft = Offset(0f, h * 0.10f),
-                size = Size(w, h * 0.82f),
-                cornerRadius = CornerRadius(w * 0.18f, w * 0.18f)
-            )
+            drawCircle(Color(0xFF007AFF), radius = w * 0.10f, center = Offset(cx, h * 0.96f))
         }
 
         when (tool) {
@@ -883,20 +884,13 @@ private fun ColorWheelButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(52.dp),
+        modifier = Modifier.size(36.dp),
         shape = CircleShape,
-        color = Color.Transparent
+        color = if (selected) Color(0xFFEAF3FF) else Color.Transparent,
+        border = if (selected) androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF)) else null
     ) {
         Box(contentAlignment = Alignment.Center) {
-            if (selected) {
-                Box(
-                    modifier = Modifier
-                        .size(48.dp)
-                        .clip(CircleShape)
-                        .border(3.dp, Color(0xFF111827), CircleShape)
-                )
-            }
-            ColorWheelGlyph(selectedColor, Modifier.size(38.dp))
+            ColorWheelGlyph(selectedColor, Modifier.size(27.dp))
         }
     }
 }
@@ -942,7 +936,7 @@ private fun PlusButton(
 ) {
     Surface(
         onClick = onClick,
-        modifier = Modifier.size(34.dp),
+        modifier = Modifier.size(30.dp),
         shape = CircleShape,
         color = if (selected) Color(0xFFE5E7EB) else Color(0xFFF1F2F4)
     ) {
@@ -964,17 +958,28 @@ private fun DockIcon(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
-            .size(34.dp)
+            .size(30.dp)
             .clip(CircleShape)
             .background(if (selected) Color(0xFFE8F1FF) else Color.Transparent)
     ) {
         Icon(
             icon,
             contentDescription = description,
-            modifier = Modifier.size(19.dp),
+            modifier = Modifier.size(17.dp),
             tint = if (!enabled) Color(0x55111827) else if (selected) Color(0xFF007AFF) else Color(0xFF111827)
         )
     }
+}
+
+@Composable
+private fun VerticalHairline() {
+    Box(
+        modifier = Modifier
+            .padding(horizontal = 3.dp)
+            .width(1.dp)
+            .height(24.dp)
+            .background(Color(0x18000000))
+    )
 }
 
 @Composable
@@ -988,18 +993,18 @@ private fun TopRoundButton(
         onClick = onClick,
         enabled = enabled,
         modifier = Modifier
-            .padding(horizontal = 2.dp)
-            .size(34.dp),
+            .padding(horizontal = 1.dp)
+            .size(30.dp),
         shape = CircleShape,
-        color = Color.White.copy(alpha = if (enabled) 0.94f else 0.62f),
-        shadowElevation = 8.dp
+        color = Color(0xFFF2F3F5).copy(alpha = if (enabled) 1f else 0.6f),
+        shadowElevation = 0.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 icon,
                 contentDescription = description,
                 tint = if (enabled) Color(0xFF111827) else Color(0x55111827),
-                modifier = Modifier.size(17.dp)
+                modifier = Modifier.size(16.dp)
             )
         }
     }
@@ -1010,18 +1015,18 @@ private fun TopDoneButton(onClick: () -> Unit) {
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .padding(start = 4.dp)
-            .size(34.dp),
+            .padding(start = 3.dp)
+            .size(30.dp),
         shape = CircleShape,
         color = Color(0xFFFFCC00),
-        shadowElevation = 8.dp
+        shadowElevation = 0.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             Icon(
                 Icons.Default.Check,
                 contentDescription = "Done",
                 tint = Color.White,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(17.dp)
             )
         }
     }

@@ -21,11 +21,17 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import `in`.innovaticshub.notepad.ui.canvas.model.RectF
 import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
 import `in`.innovaticshub.notepad.ui.canvas.viewmodel.DrawingViewModel
 import `in`.innovaticshub.notepad.ui.canvas.zoom.ZoomState
 import kotlin.math.max
+
+private enum class SelectionDragMode {
+    Move,
+    Scale
+}
 
 /**
  * Infinite canvas: 1 finger / stylus = draw, 2+ fingers = pinch-zoom + pan.
@@ -42,6 +48,9 @@ fun ZoomableCanvas(
     val uiState by viewModel.uiState.collectAsState()
     var currentStroke by remember { mutableStateOf<Stroke?>(null) }
     var eraserPreview by remember { mutableStateOf<Offset?>(null) }
+    val selectedBounds = remember(uiState.strokes, uiState.selectedStrokeIds) {
+        computeSelectedBounds(uiState.strokes, uiState.selectedStrokeIds)
+    }
 
     Canvas(
         modifier = modifier
@@ -49,15 +58,33 @@ fun ZoomableCanvas(
             .onSizeChanged { size ->
                 zoomState.updateViewportSize(size.width.toFloat(), size.height.toFloat())
             }
-            .pointerInput(zoomState, uiState.currentTool) {
+            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds, selectedBounds) {
                 awaitEachGesture {
                     val firstDown = awaitFirstDown(requireUnconsumed = false)
                     val isStylus = firstDown.type == PointerType.Stylus ||
                         firstDown.type == PointerType.Eraser
+                    val firstCanvasPoint = zoomState.screenToCanvas(firstDown.position)
                     var isMultiTouch = false
                     var dragStarted = false
+                    var selectionDragMode: SelectionDragMode? = null
+                    var lastSelectionPoint = firstCanvasPoint
+                    var selectionPivot = Offset.Zero
                     var initialPinchDistance = 0f
                     var lastPinchCenter = Offset.Zero
+
+                    if (uiState.currentTool.type == ToolType.LASSO && selectedBounds != null) {
+                        val handleRadius = (30f / zoomState.scale).coerceIn(10f, 44f)
+                        val resizeHandle = selectedBounds.bottomRight
+                        val insideSelection = selectedBounds.contains(firstCanvasPoint)
+                        val onResizeHandle = (firstCanvasPoint - resizeHandle).getDistance() <= handleRadius
+                        if (onResizeHandle || insideSelection) {
+                            selectionDragMode = if (onResizeHandle) SelectionDragMode.Scale else SelectionDragMode.Move
+                            selectionPivot = selectedBounds.topLeft
+                            lastSelectionPoint = firstCanvasPoint
+                            viewModel.beginSelectionTransform()
+                            firstDown.consume()
+                        }
+                    }
 
                     do {
                         val event = awaitPointerEvent()
@@ -70,6 +97,10 @@ fun ZoomableCanvas(
                                 currentStroke = null
                                 eraserPreview = null
                                 dragStarted = false
+                            }
+                            if (selectionDragMode != null) {
+                                viewModel.endSelectionTransform()
+                                selectionDragMode = null
                             }
                             isMultiTouch = true
                             val p1 = pressed[0]
@@ -90,11 +121,35 @@ fun ZoomableCanvas(
                         } else if (pointerCount == 1 && !isMultiTouch) {
                             val change = pressed.first()
                             val pos = change.position
+                            val canvasPoint = zoomState.screenToCanvas(pos)
+
+                            if (selectionDragMode != null) {
+                                change.consume()
+                                when (selectionDragMode) {
+                                    SelectionDragMode.Move -> {
+                                        val delta = canvasPoint - lastSelectionPoint
+                                        viewModel.moveSelectedStrokesBy(delta.x, delta.y)
+                                    }
+                                    SelectionDragMode.Scale -> {
+                                        val previousDistance = (lastSelectionPoint - selectionPivot).getDistance()
+                                        val nextDistance = (canvasPoint - selectionPivot).getDistance()
+                                        if (previousDistance > 0.001f && nextDistance > 0.001f) {
+                                            viewModel.scaleSelectedStrokesBy(
+                                                scale = nextDistance / previousDistance,
+                                                pivotX = selectionPivot.x,
+                                                pivotY = selectionPivot.y
+                                            )
+                                        }
+                                    }
+                                }
+                                lastSelectionPoint = canvasPoint
+                                continue
+                            }
+
                             if (!dragStarted) {
                                 if (!isStylus && uiState.currentTool.type == ToolType.ERASER) {
                                     // finger on eraser: skip until transform mode
                                 }
-                                val canvasPoint = zoomState.screenToCanvas(pos)
                                 viewModel.startStroke(
                                     canvasPoint.x,
                                     canvasPoint.y,
@@ -104,7 +159,6 @@ fun ZoomableCanvas(
                                 dragStarted = true
                             }
                             change.consume()
-                            val canvasPoint = zoomState.screenToCanvas(pos)
                             currentStroke = viewModel.addStrokePoint(
                                 canvasPoint.x,
                                 canvasPoint.y,
@@ -120,6 +174,9 @@ fun ZoomableCanvas(
                         viewModel.endStroke()
                         currentStroke = null
                         eraserPreview = null
+                    }
+                    if (selectionDragMode != null) {
+                        viewModel.endSelectionTransform()
                     }
                 }
             }
@@ -154,19 +211,59 @@ fun ZoomableCanvas(
             uiState.strokes.forEach { stroke ->
                 drawStroke(stroke, selected = stroke.id in uiState.selectedStrokeIds)
             }
+            selectedBounds?.let { drawSelectionOverlay(it, zoomState.scale) }
             currentStroke?.let { drawStroke(it) }
         }
 
         eraserPreview?.let { center ->
             val radius = uiState.currentTool.strokeWidth() / 2f * zoomState.scale
             drawCircle(
-                color = Color.Gray.copy(alpha = 0.35f),
+                color = Color(0xFF007AFF).copy(alpha = 0.14f),
+                radius = radius,
+                center = center
+            )
+            drawCircle(
+                color = Color.White.copy(alpha = 0.92f),
                 radius = radius,
                 center = center,
-                style = ComposeStroke(width = 2f)
+                style = ComposeStroke(width = 3.5f)
+            )
+            drawCircle(
+                color = Color(0xFF007AFF).copy(alpha = 0.82f),
+                radius = radius,
+                center = center,
+                style = ComposeStroke(width = 2.2f)
+            )
+            drawCircle(
+                color = Color(0xFF007AFF),
+                radius = 3.5f,
+                center = center
             )
         }
     }
+}
+
+private fun computeSelectedBounds(strokes: List<Stroke>, selectedIds: Set<String>): RectF? {
+    val selected = strokes.filter { it.id in selectedIds }
+    if (selected.isEmpty()) return null
+    return RectF(
+        left = selected.minOf { it.bounds.left },
+        top = selected.minOf { it.bounds.top },
+        right = selected.maxOf { it.bounds.right },
+        bottom = selected.maxOf { it.bounds.bottom }
+    )
+}
+
+private val RectF.topLeft: Offset
+    get() = Offset(left, top)
+
+private val RectF.bottomRight: Offset
+    get() = Offset(right, bottom)
+
+private fun RectF.contains(point: Offset): Boolean {
+    val padding = 18f
+    return point.x in (left - padding)..(right + padding) &&
+        point.y in (top - padding)..(bottom + padding)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(scale: Float) {
@@ -188,6 +285,52 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(sc
     while (y <= halfH) {
         drawLine(color, Offset(-halfW, y), Offset(halfW, y), lineWidth)
         y += spacing
+    }
+}
+
+private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionOverlay(
+    bounds: RectF,
+    scale: Float
+) {
+    val padding = (12f / scale).coerceIn(4f, 18f)
+    val left = bounds.left - padding
+    val top = bounds.top - padding
+    val right = bounds.right + padding
+    val bottom = bounds.bottom + padding
+    val handleRadius = (10f / scale).coerceIn(4f, 10f)
+    val strokeWidth = (2f / scale).coerceIn(1.2f, 2.6f)
+
+    drawRect(
+        color = Color(0xFF007AFF).copy(alpha = 0.09f),
+        topLeft = Offset(left, top),
+        size = Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f))
+    )
+    drawRect(
+        color = Color(0xFF007AFF),
+        topLeft = Offset(left, top),
+        size = Size((right - left).coerceAtLeast(1f), (bottom - top).coerceAtLeast(1f)),
+        style = ComposeStroke(
+            width = strokeWidth,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f / scale, 8f / scale))
+        )
+    )
+
+    listOf(
+        Offset(left, top),
+        Offset(right, top),
+        Offset(left, bottom),
+        Offset(right, bottom)
+    ).forEachIndexed { index, center ->
+        drawCircle(Color.White, radius = handleRadius * 1.25f, center = center)
+        drawCircle(Color(0xFF007AFF), radius = handleRadius, center = center)
+        if (index == 3) {
+            drawCircle(
+                color = Color.White,
+                radius = handleRadius * 0.42f,
+                center = center,
+                style = ComposeStroke(width = strokeWidth)
+            )
+        }
     }
 }
 
