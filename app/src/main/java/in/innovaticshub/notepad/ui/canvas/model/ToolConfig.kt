@@ -140,8 +140,17 @@ data class ToolConfig(
         )
 
         // Marker presets
-        val HIGHLIGHTER_YELLOW = ToolConfig(
+        val MARKER_YELLOW = ToolConfig(
             type = ToolType.MARKER,
+            style = DrawingStyle.SOLID,
+            color = Color(0xFFFFD60A),
+            baseWidth = 8f,
+            opacity = 0.55f,
+            usePressure = false
+        )
+
+        val HIGHLIGHTER_YELLOW = ToolConfig(
+            type = ToolType.HIGHLIGHTER,
             style = DrawingStyle.SOLID,
             color = Color(0xFFFFD60A),
             baseWidth = 12f,
@@ -150,7 +159,7 @@ data class ToolConfig(
         )
 
         val HIGHLIGHTER_PINK = ToolConfig(
-            type = ToolType.MARKER,
+            type = ToolType.HIGHLIGHTER,
             style = DrawingStyle.SOLID,
             color = Color(0xFFFF6B9D),
             baseWidth = 12f,
@@ -159,7 +168,7 @@ data class ToolConfig(
         )
 
         val HIGHLIGHTER_BLUE = ToolConfig(
-            type = ToolType.MARKER,
+            type = ToolType.HIGHLIGHTER,
             style = DrawingStyle.SOLID,
             color = Color(0xFF7DD3FC),
             baseWidth = 12f,
@@ -221,7 +230,7 @@ data class ToolConfig(
             return when (type) {
                 ToolType.PEN -> MEDIUM_PEN
                 ToolType.PENCIL -> GRAPHITE_PENCIL
-                ToolType.MARKER -> HIGHLIGHTER_YELLOW
+                ToolType.MARKER -> MARKER_YELLOW
                 ToolType.HIGHLIGHTER -> HIGHLIGHTER_YELLOW
                 ToolType.BRUSH -> INK_BRUSH
                 ToolType.CALLIGRAPHY -> INK_BRUSH.copy(style = DrawingStyle.CALIGRAPHY)

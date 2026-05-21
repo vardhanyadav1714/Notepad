@@ -982,13 +982,8 @@ private fun AppleMarkupGlyph(
                 drawRoundRect(outline, Offset(cx - w * 0.18f, h * 0.72f), Size(w * 0.36f, h * 0.12f), CornerRadius(w * 0.04f, w * 0.04f))
             }
             ToolType.LASSO -> {
-                val loop = Path().apply {
-                    moveTo(cx - w * 0.28f, h * 0.45f)
-                    cubicTo(cx - w * 0.28f, h * 0.22f, cx + w * 0.28f, h * 0.22f, cx + w * 0.28f, h * 0.46f)
-                    cubicTo(cx + w * 0.28f, h * 0.70f, cx - w * 0.28f, h * 0.70f, cx - w * 0.28f, h * 0.45f)
-                }
-                drawPath(loop, Color(0xFF007AFF), style = Stroke(width = w * 0.08f, cap = StrokeCap.Round, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))))
-                drawLine(Color(0xFF007AFF), Offset(cx + w * 0.18f, h * 0.66f), Offset(cx + w * 0.34f, h * 0.88f), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
+                drawCircle(outline, radius = w * 0.26f, center = Offset(cx, h * 0.46f), style = Stroke(width = w * 0.08f, pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 5f))))
+                drawLine(outline, Offset(cx + w * 0.18f, h * 0.66f), Offset(cx + w * 0.31f, h * 0.86f), strokeWidth = w * 0.07f, cap = StrokeCap.Round)
             }
             else -> {
                 drawLine(outline, Offset(cx, h * 0.10f), Offset(cx, h * 0.55f), strokeWidth = w * 0.16f, cap = StrokeCap.Round)
