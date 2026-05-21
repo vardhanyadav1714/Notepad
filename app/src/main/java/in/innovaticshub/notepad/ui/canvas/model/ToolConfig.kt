@@ -299,8 +299,8 @@ private fun computeBounds(points: List<StrokePoint>): RectF {
     if (points.isEmpty()) return RectF.EMPTY
     var minX = Float.MAX_VALUE
     var minY = Float.MAX_VALUE
-    var maxX = Float.MIN_VALUE
-    var maxY = Float.MIN_VALUE
+    var maxX = -Float.MAX_VALUE
+    var maxY = -Float.MAX_VALUE
     points.forEach {
         minX = minOf(minX, it.x)
         minY = minOf(minY, it.y)

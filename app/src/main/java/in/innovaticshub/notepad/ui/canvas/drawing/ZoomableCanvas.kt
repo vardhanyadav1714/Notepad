@@ -33,6 +33,11 @@ private enum class SelectionDragMode {
     Scale
 }
 
+private data class SelectionHandle(
+    val center: Offset,
+    val pivot: Offset
+)
+
 /**
  * Infinite canvas: 1 finger / stylus = draw, 2+ fingers = pinch-zoom + pan.
  */
@@ -73,13 +78,17 @@ fun ZoomableCanvas(
                     var lastPinchCenter = Offset.Zero
 
                     if (uiState.currentTool.type == ToolType.LASSO && selectedBounds != null) {
-                        val handleRadius = (30f / zoomState.scale).coerceIn(10f, 44f)
-                        val resizeHandle = selectedBounds.bottomRight
-                        val insideSelection = selectedBounds.contains(firstCanvasPoint)
-                        val onResizeHandle = (firstCanvasPoint - resizeHandle).getDistance() <= handleRadius
-                        if (onResizeHandle || insideSelection) {
-                            selectionDragMode = if (onResizeHandle) SelectionDragMode.Scale else SelectionDragMode.Move
-                            selectionPivot = selectedBounds.topLeft
+                        val handleRadius = (34f / zoomState.scale).coerceIn(16f, 70f)
+                        val resizeHandle = selectedBounds.selectionHandles(zoomState.scale)
+                            .minByOrNull { (it.center - firstCanvasPoint).getDistance() }
+                            ?.takeIf { (it.center - firstCanvasPoint).getDistance() <= handleRadius }
+                        val insideSelection = selectedBounds
+                            .expanded((34f / zoomState.scale).coerceIn(14f, 80f))
+                            .contains(firstCanvasPoint)
+
+                        if (resizeHandle != null || insideSelection) {
+                            selectionDragMode = if (resizeHandle != null) SelectionDragMode.Scale else SelectionDragMode.Move
+                            selectionPivot = resizeHandle?.pivot ?: selectedBounds.center
                             lastSelectionPoint = firstCanvasPoint
                             viewModel.beginSelectionTransform()
                             firstDown.consume()
@@ -257,13 +266,39 @@ private fun computeSelectedBounds(strokes: List<Stroke>, selectedIds: Set<String
 private val RectF.topLeft: Offset
     get() = Offset(left, top)
 
+private val RectF.topRight: Offset
+    get() = Offset(right, top)
+
+private val RectF.bottomLeft: Offset
+    get() = Offset(left, bottom)
+
 private val RectF.bottomRight: Offset
     get() = Offset(right, bottom)
 
+private val RectF.center: Offset
+    get() = Offset((left + right) / 2f, (top + bottom) / 2f)
+
+private fun RectF.expanded(amount: Float): RectF {
+    return RectF(left - amount, top - amount, right + amount, bottom + amount)
+}
+
 private fun RectF.contains(point: Offset): Boolean {
-    val padding = 18f
-    return point.x in (left - padding)..(right + padding) &&
-        point.y in (top - padding)..(bottom + padding)
+    return point.x in left..right && point.y in top..bottom
+}
+
+private fun RectF.selectionHandles(scale: Float): List<SelectionHandle> {
+    val padding = selectionPadding(scale)
+    val padded = expanded(padding)
+    return listOf(
+        SelectionHandle(center = padded.topLeft, pivot = padded.bottomRight),
+        SelectionHandle(center = padded.topRight, pivot = padded.bottomLeft),
+        SelectionHandle(center = padded.bottomLeft, pivot = padded.topRight),
+        SelectionHandle(center = padded.bottomRight, pivot = padded.topLeft)
+    )
+}
+
+private fun selectionPadding(scale: Float): Float {
+    return (12f / scale).coerceIn(4f, 18f)
 }
 
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawAdaptiveGrid(scale: Float) {
@@ -292,7 +327,7 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionOverla
     bounds: RectF,
     scale: Float
 ) {
-    val padding = (12f / scale).coerceIn(4f, 18f)
+    val padding = selectionPadding(scale)
     val left = bounds.left - padding
     val top = bounds.top - padding
     val right = bounds.right + padding
