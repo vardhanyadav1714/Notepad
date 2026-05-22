@@ -112,7 +112,7 @@ export class CanvasRoom {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const roomId = decodeURIComponent(url.pathname.slice("/ws/".length)).trim();
-    const connectedClients = this.state.getWebSockets().length;
+    const connectedClients = this.connectedClients();
 
     if (connectedClients >= MAX_ROOM_CLIENTS) {
       return json(
@@ -130,10 +130,16 @@ export class CanvasRoom {
 
     this.state.acceptWebSocket(server);
     server.serializeAttachment({ roomId, connectedAt: Date.now() });
-    await this.touchRoom();
+    this.touchRoom();
 
-    const strokes = await this.getStoredStrokes();
-    server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
+    server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes: [] }));
+    this.getStoredStrokesSafely()
+      .then((strokes) => {
+        if (strokes.length > 0) {
+          server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
+        }
+      })
+      .catch(() => undefined);
 
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -158,7 +164,7 @@ export class CanvasRoom {
     }
 
     if (parsed.type === "ping") {
-      await this.touchRoom();
+      this.touchRoom();
       sender.send(JSON.stringify({ type: "pong", at: Date.now() }));
       return;
     }
@@ -169,7 +175,7 @@ export class CanvasRoom {
         userId: parsed.userId ?? "anonymous"
       });
       sender.send(JSON.stringify({ type: "joined", at: Date.now() }));
-      await this.touchRoom();
+      this.touchRoom();
       return;
     }
 
@@ -180,9 +186,9 @@ export class CanvasRoom {
         return;
       }
 
-      await this.storeStroke(stroke);
-      await this.touchRoom();
+      this.touchRoom();
       this.broadcast({ type: "stroke", stroke, at: Date.now() });
+      this.storeStroke(stroke).catch(() => undefined);
       return;
     }
 
@@ -193,23 +199,23 @@ export class CanvasRoom {
         return;
       }
 
-      await this.storeCanvasState(state.strokes);
-      await this.touchRoom();
+      this.touchRoom();
       this.broadcast({ type: "canvas_state", state, at: Date.now() });
+      this.storeCanvasState(state.strokes).catch(() => undefined);
     }
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
     this.messageTimes.delete(ws);
-    if (this.state.getWebSockets().length === 0) {
-      this.state.storage.setAlarm(Date.now() + ROOM_IDLE_TTL_MS);
+    if (this.connectedClients() === 0) {
+      this.scheduleCleanup();
     }
     ws.close(code, reason);
   }
 
   async alarm(): Promise<void> {
-    if (this.state.getWebSockets().length > 0) {
-      await this.touchRoom();
+    if (this.connectedClients() > 0) {
+      this.touchRoom();
       return;
     }
 
@@ -223,8 +229,16 @@ export class CanvasRoom {
 
   private broadcast(payload: unknown): void {
     const encoded = JSON.stringify(payload);
-    for (const socket of this.state.getWebSockets()) {
+    for (const socket of this.connectedSockets()) {
       socket.send(encoded);
+    }
+  }
+
+  private async getStoredStrokesSafely(): Promise<RemoteStroke[]> {
+    try {
+      return await this.getStoredStrokes();
+    } catch {
+      return [];
     }
   }
 
@@ -258,9 +272,30 @@ export class CanvasRoom {
     await this.state.storage.put(STORAGE_STROKES_KEY, strokes.slice(-MAX_STORED_STROKES));
   }
 
-  private async touchRoom(): Promise<void> {
-    await this.state.storage.put(STORAGE_LAST_ACTIVE_KEY, Date.now());
-    await this.state.storage.setAlarm(Date.now() + ROOM_IDLE_TTL_MS);
+  private touchRoom(): void {
+    const now = Date.now();
+    this.state.storage
+      .put(STORAGE_LAST_ACTIVE_KEY, now)
+      .then(() => this.state.storage.setAlarm(now + ROOM_IDLE_TTL_MS))
+      .catch(() => undefined);
+  }
+
+  private scheduleCleanup(): void {
+    this.state.storage
+      .setAlarm(Date.now() + ROOM_IDLE_TTL_MS)
+      .catch(() => undefined);
+  }
+
+  private connectedSockets(): WebSocket[] {
+    try {
+      return this.state.getWebSockets();
+    } catch {
+      return [];
+    }
+  }
+
+  private connectedClients(): number {
+    return this.connectedSockets().length;
   }
 
   private allowMessage(socket: WebSocket): boolean {
