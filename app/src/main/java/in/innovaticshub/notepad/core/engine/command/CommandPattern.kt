@@ -139,7 +139,7 @@ class CommandHistory(
     fun undo(state: CanvasState): CanvasState {
         if (undoStack.isEmpty()) return state
 
-        val command = undoStack.removeLast()
+        val command = undoStack.removeAt(undoStack.lastIndex)
         val newState = command.undo(state)
         redoStack.add(command)
 
@@ -155,7 +155,7 @@ class CommandHistory(
     fun redo(state: CanvasState): CanvasState {
         if (redoStack.isEmpty()) return state
 
-        val command = redoStack.removeLast()
+        val command = redoStack.removeAt(redoStack.lastIndex)
         val newState = command.execute(state)
         undoStack.add(command)
 

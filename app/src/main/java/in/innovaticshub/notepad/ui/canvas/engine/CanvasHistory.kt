@@ -14,20 +14,20 @@ class CanvasHistory(private val maxSteps: Int = 80) {
 
     fun pushBeforeChange(before: List<Stroke>) {
         undoStack.addLast(HistoryEntry(before))
-        if (undoStack.size > maxSteps) undoStack.removeFirst()
+        if (undoStack.size > maxSteps) undoStack.removeAt(0)
         redoStack.clear()
     }
 
     fun undo(current: List<Stroke>): List<Stroke>? {
         if (undoStack.isEmpty()) return null
         redoStack.addLast(HistoryEntry(current))
-        return undoStack.removeLast().strokes
+        return undoStack.removeAt(undoStack.lastIndex).strokes
     }
 
     fun redo(current: List<Stroke>): List<Stroke>? {
         if (redoStack.isEmpty()) return null
         undoStack.addLast(HistoryEntry(current))
-        return redoStack.removeLast().strokes
+        return redoStack.removeAt(redoStack.lastIndex).strokes
     }
 
     fun clear() {
