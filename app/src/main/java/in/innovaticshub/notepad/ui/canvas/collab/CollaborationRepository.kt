@@ -120,11 +120,12 @@ class CollaborationRepository {
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    val error = response?.toCollaborationError() ?: t
                     val shouldReconnect = synchronized(socketLock) {
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             socketOpen = false
                         }
-                        !closedByUser.get() && activeRoomCode == normalized
+                        !closedByUser.get() && response?.code != 429 && activeRoomCode == normalized
                     }
 
                     if (shouldReconnect) {
@@ -142,7 +143,7 @@ class CollaborationRepository {
                         }
                     }
                     scope.launch(Dispatchers.Main) {
-                        onError(t)
+                        onError(error)
                     }
                 }
 
@@ -285,5 +286,14 @@ class CollaborationRepository {
 
     private fun String.urlEncoded(): String {
         return URLEncoder.encode(this, "UTF-8").replace("+", "%20")
+    }
+
+    private fun Response.toCollaborationError(): Throwable {
+        return when (code) {
+            429 -> IllegalStateException("Sorry, this room is full. Please create a new room.")
+            403 -> IllegalStateException("You do not have permission to join this room.")
+            404 -> IllegalStateException("This room could not be found.")
+            else -> IllegalStateException("Could not connect to collaboration room. Please try again.")
+        }
     }
 }

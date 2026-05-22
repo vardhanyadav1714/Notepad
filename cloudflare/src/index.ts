@@ -31,6 +31,8 @@ type ClientMessage =
   | { type: "ping" };
 
 const MAX_STORED_STROKES = 1200;
+const MAX_ROOM_CLIENTS = 20;
+const ROOM_FULL_MESSAGE = "Sorry, this room is full. Please create a new room.";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -95,6 +97,19 @@ export class CanvasRoom {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const roomId = decodeURIComponent(url.pathname.slice("/ws/".length)).trim();
+    const connectedClients = this.state.getWebSockets().length;
+
+    if (connectedClients >= MAX_ROOM_CLIENTS) {
+      return json(
+        {
+          error: "room_full",
+          message: ROOM_FULL_MESSAGE,
+          limit: MAX_ROOM_CLIENTS
+        },
+        429
+      );
+    }
+
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
