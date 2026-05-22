@@ -25,14 +25,27 @@ type RemoteStroke = {
   createdAt: number;
 };
 
+type RemoteCanvasState = {
+  userId: string;
+  strokes: RemoteStroke[];
+  updatedAt: number;
+};
+
 type ClientMessage =
   | { type: "join"; userId?: string }
   | { type: "stroke"; stroke?: RemoteStroke }
+  | { type: "canvas_state"; state?: RemoteCanvasState }
   | { type: "ping" };
 
 const MAX_STORED_STROKES = 1200;
 const MAX_ROOM_CLIENTS = 20;
+const MAX_MESSAGES_PER_WINDOW = 240;
+const RATE_LIMIT_WINDOW_MS = 10_000;
+const ROOM_IDLE_TTL_MS = 24 * 60 * 60 * 1000;
 const ROOM_FULL_MESSAGE = "Sorry, this room is full. Please create a new room.";
+const STORAGE_STROKES_KEY = "strokes";
+const STORAGE_LAST_ACTIVE_KEY = "lastActiveAt";
+const LEGACY_INDEX_KEY = "strokeIndex";
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
@@ -66,7 +79,7 @@ export default {
     }
 
     if (url.pathname === "/api/rooms" && request.method === "POST") {
-      const roomId = Date.now().toString();
+      const roomId = generateRoomId();
       return json({
         roomId,
         shareUrl: `${url.origin}/r/${roomId}`,
@@ -89,6 +102,8 @@ export default {
 };
 
 export class CanvasRoom {
+  private readonly messageTimes = new WeakMap<WebSocket, number[]>();
+
   constructor(
     private readonly state: DurableObjectState,
     private readonly env: Env
@@ -115,6 +130,7 @@ export class CanvasRoom {
 
     this.state.acceptWebSocket(server);
     server.serializeAttachment({ roomId, connectedAt: Date.now() });
+    await this.touchRoom();
 
     const strokes = await this.getStoredStrokes();
     server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
@@ -127,6 +143,12 @@ export class CanvasRoom {
       return;
     }
 
+    if (!this.allowMessage(sender)) {
+      sender.send(JSON.stringify({ type: "error", message: "Too many drawing updates. Please slow down for a moment." }));
+      sender.close(1013, "Rate limit exceeded");
+      return;
+    }
+
     let parsed: ClientMessage;
     try {
       parsed = JSON.parse(message) as ClientMessage;
@@ -136,6 +158,7 @@ export class CanvasRoom {
     }
 
     if (parsed.type === "ping") {
+      await this.touchRoom();
       sender.send(JSON.stringify({ type: "pong", at: Date.now() }));
       return;
     }
@@ -146,6 +169,7 @@ export class CanvasRoom {
         userId: parsed.userId ?? "anonymous"
       });
       sender.send(JSON.stringify({ type: "joined", at: Date.now() }));
+      await this.touchRoom();
       return;
     }
 
@@ -157,12 +181,44 @@ export class CanvasRoom {
       }
 
       await this.storeStroke(stroke);
+      await this.touchRoom();
       this.broadcast({ type: "stroke", stroke, at: Date.now() });
+      return;
+    }
+
+    if (parsed.type === "canvas_state" && parsed.state) {
+      const state = sanitizeCanvasState(parsed.state);
+      if (!state) {
+        sender.send(JSON.stringify({ type: "error", message: "Invalid canvas update." }));
+        return;
+      }
+
+      await this.storeCanvasState(state.strokes);
+      await this.touchRoom();
+      this.broadcast({ type: "canvas_state", state, at: Date.now() });
     }
   }
 
   webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
+    this.messageTimes.delete(ws);
+    if (this.state.getWebSockets().length === 0) {
+      this.state.storage.setAlarm(Date.now() + ROOM_IDLE_TTL_MS);
+    }
     ws.close(code, reason);
+  }
+
+  async alarm(): Promise<void> {
+    if (this.state.getWebSockets().length > 0) {
+      await this.touchRoom();
+      return;
+    }
+
+    const lastActiveAt = (await this.state.storage.get<number>(STORAGE_LAST_ACTIVE_KEY)) ?? 0;
+    if (Date.now() - lastActiveAt >= ROOM_IDLE_TTL_MS) {
+      await this.state.storage.deleteAll();
+    } else {
+      await this.state.storage.setAlarm(lastActiveAt + ROOM_IDLE_TTL_MS);
+    }
   }
 
   private broadcast(payload: unknown): void {
@@ -173,7 +229,12 @@ export class CanvasRoom {
   }
 
   private async getStoredStrokes(): Promise<RemoteStroke[]> {
-    const ids = (await this.state.storage.get<string[]>("strokeIndex")) ?? [];
+    const strokes = await this.state.storage.get<RemoteStroke[]>(STORAGE_STROKES_KEY);
+    if (strokes) {
+      return strokes.slice(-MAX_STORED_STROKES);
+    }
+
+    const ids = (await this.state.storage.get<string[]>(LEGACY_INDEX_KEY)) ?? [];
     if (ids.length === 0) return [];
 
     const values = await this.state.storage.get<RemoteStroke>(
@@ -185,20 +246,31 @@ export class CanvasRoom {
   }
 
   private async storeStroke(stroke: RemoteStroke): Promise<void> {
-    const index = (await this.state.storage.get<string[]>("strokeIndex")) ?? [];
-    if (index.includes(stroke.id)) {
+    const strokes = await this.getStoredStrokes();
+    if (strokes.some((storedStroke) => storedStroke.id === stroke.id)) {
       return;
     }
 
-    const nextIndex = [...index, stroke.id];
-    const overflow = Math.max(0, nextIndex.length - MAX_STORED_STROKES);
-    const removed = overflow > 0 ? nextIndex.splice(0, overflow) : [];
+    await this.storeCanvasState([...strokes, stroke]);
+  }
 
-    await this.state.storage.put(`stroke:${stroke.id}`, stroke);
-    await this.state.storage.put("strokeIndex", nextIndex);
-    if (removed.length > 0) {
-      await this.state.storage.delete(removed.map((id) => `stroke:${id}`));
-    }
+  private async storeCanvasState(strokes: RemoteStroke[]): Promise<void> {
+    await this.state.storage.put(STORAGE_STROKES_KEY, strokes.slice(-MAX_STORED_STROKES));
+  }
+
+  private async touchRoom(): Promise<void> {
+    await this.state.storage.put(STORAGE_LAST_ACTIVE_KEY, Date.now());
+    await this.state.storage.setAlarm(Date.now() + ROOM_IDLE_TTL_MS);
+  }
+
+  private allowMessage(socket: WebSocket): boolean {
+    const now = Date.now();
+    const recent = (this.messageTimes.get(socket) ?? []).filter(
+      (sentAt) => now - sentAt < RATE_LIMIT_WINDOW_MS
+    );
+    recent.push(now);
+    this.messageTimes.set(socket, recent);
+    return recent.length <= MAX_MESSAGES_PER_WINDOW;
   }
 }
 
@@ -234,6 +306,20 @@ function sanitizeStroke(input: RemoteStroke): RemoteStroke | null {
   };
 }
 
+function sanitizeCanvasState(input: RemoteCanvasState): RemoteCanvasState | null {
+  if (!input || typeof input.userId !== "string" || input.userId.length > 160) return null;
+  if (!Array.isArray(input.strokes) || input.strokes.length > MAX_STORED_STROKES) return null;
+
+  const strokes = input.strokes.map(sanitizeStroke);
+  if (strokes.some((stroke) => stroke === null)) return null;
+
+  return {
+    userId: input.userId,
+    strokes: strokes as RemoteStroke[],
+    updatedAt: finiteNumber(input.updatedAt, Date.now()) ?? Date.now()
+  };
+}
+
 function finiteNumber(value: unknown, fallback?: number): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return fallback ?? null;
@@ -250,6 +336,14 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { "Content-Type": "application/json; charset=utf-8" }
   });
+}
+
+function generateRoomId(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes)
+    .map((byte) => byte.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 function sharePage(origin: string, roomId: string): Response {

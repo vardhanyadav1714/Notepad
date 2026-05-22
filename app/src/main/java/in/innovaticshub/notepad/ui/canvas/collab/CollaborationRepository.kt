@@ -13,12 +13,15 @@ import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
+import java.security.SecureRandom
+import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CollaborationRepository {
     private val websocketBaseUrl = "wss://drawly.smartattendance.xyz/ws"
+    private val roomRandom = SecureRandom()
     private val client = OkHttpClient.Builder()
         .pingInterval(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)
@@ -33,7 +36,11 @@ class CollaborationRepository {
     val currentUserId: String = "local-${UUID.randomUUID()}"
 
     suspend fun createRoom(): String {
-        return System.currentTimeMillis().toString()
+        val bytes = ByteArray(8)
+        roomRandom.nextBytes(bytes)
+        return bytes.joinToString(separator = "") { byte ->
+            "%02x".format(Locale.US, byte.toInt() and 0xFF)
+        }
     }
 
     suspend fun joinRoom(roomCode: String): String {
@@ -63,9 +70,33 @@ class CollaborationRepository {
         }
     }
 
+    suspend fun uploadCanvasState(roomCode: String, state: RemoteCanvasState) {
+        if (roomCode.isBlank()) return
+        val message = JSONObject()
+            .put("type", "canvas_state")
+            .put("state", state.toJson())
+            .toString()
+
+        withContext(Dispatchers.IO) {
+            val sent = synchronized(socketLock) {
+                val socket = webSocket
+                if (socket != null && socketOpen) {
+                    socket.send(message)
+                } else {
+                    false
+                }
+            }
+
+            if (!sent) {
+                error("Collaboration is not connected yet. Please wait and try again.")
+            }
+        }
+    }
+
     fun listenToStrokes(
         roomCode: String,
         onStrokes: (List<RemoteStroke>) -> Unit,
+        onCanvasState: (RemoteCanvasState) -> Unit,
         onConnected: () -> Unit,
         onError: (Throwable) -> Unit
     ): CollaborationSubscription {
@@ -105,11 +136,16 @@ class CollaborationRepository {
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     runCatching {
-                        text.toRemoteStrokes()
-                    }.onSuccess { strokes ->
-                        if (strokes.isNotEmpty()) {
+                        text.toCollaborationMessage()
+                    }.onSuccess { message ->
+                        if (message.strokes.isNotEmpty()) {
                             scope.launch(Dispatchers.Main) {
-                                onStrokes(strokes)
+                                onStrokes(message.strokes)
+                            }
+                        }
+                        message.canvasState?.let { state ->
+                            scope.launch(Dispatchers.Main) {
+                                onCanvasState(state)
                             }
                         }
                     }.onFailure { error ->
@@ -195,22 +231,32 @@ class CollaborationRepository {
         }
     }
 
-    private fun String.toRemoteStrokes(): List<RemoteStroke> {
+    private data class CollaborationMessage(
+        val strokes: List<RemoteStroke> = emptyList(),
+        val canvasState: RemoteCanvasState? = null
+    )
+
+    private fun String.toCollaborationMessage(): CollaborationMessage {
         val json = JSONObject(this)
         return when (json.optString("type")) {
             "room_snapshot" -> {
                 val strokes = json.optJSONArray("strokes") ?: JSONArray()
-                buildList {
+                CollaborationMessage(strokes = buildList {
                     repeat(strokes.length()) { index ->
                         strokes.optJSONObject(index)
                             ?.toRemoteStrokeOrNull()
                             ?.let(::add)
                     }
-                }
+                })
             }
-            "stroke" -> listOfNotNull(json.optJSONObject("stroke")?.toRemoteStrokeOrNull())
+            "stroke" -> CollaborationMessage(
+                strokes = listOfNotNull(json.optJSONObject("stroke")?.toRemoteStrokeOrNull())
+            )
+            "canvas_state" -> CollaborationMessage(
+                canvasState = json.optJSONObject("state")?.toRemoteCanvasStateOrNull()
+            )
             "error" -> error(json.optString("message", "Collaboration server error."))
-            else -> emptyList()
+            else -> CollaborationMessage()
         }
     }
 
@@ -244,6 +290,18 @@ class CollaborationRepository {
             .put("createdAt", createdAt)
     }
 
+    private fun RemoteCanvasState.toJson(): JSONObject {
+        return JSONObject()
+            .put("userId", userId)
+            .put(
+                "strokes",
+                JSONArray().apply {
+                    strokes.forEach { stroke -> put(stroke.toJson()) }
+                }
+            )
+            .put("updatedAt", updatedAt)
+    }
+
     private fun JSONObject.toRemoteStrokeOrNull(): RemoteStroke? {
         val pointsArray = optJSONArray("points") ?: JSONArray()
         val tool = optJSONObject("toolConfig") ?: JSONObject()
@@ -273,6 +331,21 @@ class CollaborationRepository {
                 usePressure = tool.optBoolean("usePressure", true)
             ),
             createdAt = optLong("createdAt", 0L)
+        )
+    }
+
+    private fun JSONObject.toRemoteCanvasStateOrNull(): RemoteCanvasState? {
+        val strokesArray = optJSONArray("strokes") ?: JSONArray()
+        return RemoteCanvasState(
+            userId = optString("userId").takeUnless { it.isBlank() } ?: return null,
+            strokes = buildList {
+                repeat(strokesArray.length()) { index ->
+                    strokesArray.optJSONObject(index)
+                        ?.toRemoteStrokeOrNull()
+                        ?.let(::add)
+                }
+            },
+            updatedAt = optLong("updatedAt", System.currentTimeMillis())
         )
     }
 

@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationRepository
 import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationSubscription
+import `in`.innovaticshub.notepad.ui.canvas.collab.RemoteCanvasState
 import `in`.innovaticshub.notepad.ui.canvas.collab.toLocalStroke
 import `in`.innovaticshub.notepad.ui.canvas.collab.toRemoteStroke
 import `in`.innovaticshub.notepad.ui.canvas.engine.CanvasHistory
@@ -123,12 +124,14 @@ class DrawingViewModel : ViewModel() {
         val restored = history.undo(_uiState.value.strokes) ?: return
         applyStrokes(restored)
         clearSelection()
+        syncCollaborativeCanvasState()
     }
 
     fun redo() {
         val restored = history.redo(_uiState.value.strokes) ?: return
         applyStrokes(restored)
         clearSelection()
+        syncCollaborativeCanvasState()
     }
 
     fun clearCanvas() {
@@ -141,6 +144,7 @@ class DrawingViewModel : ViewModel() {
         history.pushBeforeChange(state.strokes)
         applyStrokes(emptyList())
         clearSelection()
+        syncCollaborativeCanvasState()
     }
 
     fun setTool(type: ToolType) {
@@ -210,12 +214,16 @@ class DrawingViewModel : ViewModel() {
     }
 
     fun endSelectionTransform() {
+        val wasActive = selectionTransformActive
         selectionTransformActive = false
         _uiState.update {
             it.copy(
                 canUndo = history.canUndo,
                 canRedo = history.canRedo
             )
+        }
+        if (wasActive) {
+            syncCollaborativeCanvasState()
         }
     }
 
@@ -361,6 +369,7 @@ class DrawingViewModel : ViewModel() {
         history.pushBeforeChange(state.strokes)
         applyStrokes(state.strokes.filterNot { it.id in state.selectedStrokeIds })
         clearSelection()
+        syncCollaborativeCanvasState()
     }
 
     fun clearSelection() {
@@ -453,6 +462,17 @@ class DrawingViewModel : ViewModel() {
                     }
                 }
             },
+            onCanvasState = { remoteState ->
+                if (remoteState.userId != collaborationRepository.currentUserId) {
+                    val localStrokes = remoteState.strokes.map { it.toLocalStroke() }
+                    appliedRemoteStrokeIds.clear()
+                    appliedRemoteStrokeIds.addAll(remoteState.strokes.map { it.id })
+                    applyStrokes(localStrokes)
+                    _uiState.update {
+                        it.copy(collaborationStatus = "Canvas updated by another participant.")
+                    }
+                }
+            },
             onConnected = {
                 _uiState.update {
                     it.copy(
@@ -498,6 +518,29 @@ class DrawingViewModel : ViewModel() {
             viewModelScope.launch {
                 runCatching {
                     collaborationRepository.uploadStroke(roomCode, remoteStroke)
+                }
+            }
+        }
+    }
+
+    private fun syncCollaborativeCanvasState() {
+        val roomCode = _uiState.value.collaborationRoomCode ?: return
+        val userId = collaborationRepository.currentUserId
+        val state = RemoteCanvasState(
+            userId = userId,
+            strokes = _uiState.value.strokes.map { stroke ->
+                stroke.toRemoteStroke(userId)
+            },
+            updatedAt = System.currentTimeMillis()
+        )
+        appliedRemoteStrokeIds.clear()
+        appliedRemoteStrokeIds.addAll(state.strokes.map { it.id })
+        viewModelScope.launch {
+            runCatching {
+                collaborationRepository.uploadCanvasState(roomCode, state)
+            }.onFailure { error ->
+                _uiState.update {
+                    it.copy(collaborationStatus = error.message ?: "Could not sync canvas update.")
                 }
             }
         }

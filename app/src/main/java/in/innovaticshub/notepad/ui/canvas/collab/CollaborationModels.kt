@@ -22,3 +22,9 @@ data class RemoteStroke(
     val toolConfig: RemoteToolConfig = RemoteToolConfig(),
     val createdAt: Long = 0L
 )
+
+data class RemoteCanvasState(
+    val userId: String = "",
+    val strokes: List<RemoteStroke> = emptyList(),
+    val updatedAt: Long = 0L
+)
