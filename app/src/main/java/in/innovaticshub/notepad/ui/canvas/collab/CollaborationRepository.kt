@@ -18,7 +18,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 class CollaborationRepository {
-    private val websocketBaseUrl = "wss://notepad-collab.vinayyadav010010001.workers.dev/ws"
+    private val websocketBaseUrl = "wss://drawly.smartattendance.xyz/ws"
     private val client = OkHttpClient.Builder()
         .pingInterval(25, TimeUnit.SECONDS)
         .retryOnConnectionFailure(true)

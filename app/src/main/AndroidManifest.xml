@@ -42,7 +42,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="notepad-collab.vinayyadav010010001.workers.dev"
+                    android:host="drawly.smartattendance.xyz"
                     android:pathPrefix="/r"
                     android:scheme="https" />
             </intent-filter>

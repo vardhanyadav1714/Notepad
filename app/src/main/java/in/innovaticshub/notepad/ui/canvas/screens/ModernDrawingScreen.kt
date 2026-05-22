@@ -134,7 +134,7 @@ fun ModernDrawingScreen(
     }
 
     fun roomLink(roomCode: String): String {
-        return "https://notepad-collab.vinayyadav010010001.workers.dev/r/$roomCode"
+        return "https://drawly.smartattendance.xyz/r/$roomCode"
     }
 
     fun shareRoom(roomCode: String) {
