@@ -88,6 +88,11 @@ private enum class ColorMode {
     Sliders
 }
 
+private enum class CanvasInputMode {
+    Draw,
+    Pan
+}
+
 private data class MarkupDockActions(
     val onBack: () -> Unit,
     val onUndo: () -> Unit,
@@ -101,6 +106,7 @@ private data class MarkupDockActions(
     val onToolSelected: (ToolType) -> Unit,
     val onColorClick: () -> Unit,
     val onAddClick: () -> Unit,
+    val onInputModeToggle: () -> Unit,
     val onThemeToggle: () -> Unit,
     val onCollaborationClick: () -> Unit
 )
@@ -124,6 +130,7 @@ fun ModernDrawingScreen(
     var showZoomHud by remember { mutableStateOf(false) }
     var activePanel by remember { mutableStateOf<MarkupPanel?>(null) }
     var lastAutoSharedRoom by remember { mutableStateOf<String?>(null) }
+    var inputMode by remember { mutableStateOf(CanvasInputMode.Draw) }
 
     fun flashZoom() {
         showZoomHud = true
@@ -168,6 +175,7 @@ fun ModernDrawingScreen(
             modifier = Modifier.fillMaxSize(),
             backgroundColor = uiState.canvasBackgroundColor,
             zoomState = zoomState,
+            isPanMode = inputMode == CanvasInputMode.Pan,
             onZoomChanged = { flashZoom() },
             onDoubleTap = { chromeVisible = !chromeVisible }
         )
@@ -197,6 +205,10 @@ fun ModernDrawingScreen(
                 },
                 onAddClick = {
                     activePanel = if (activePanel == MarkupPanel.Tools) null else MarkupPanel.Tools
+                },
+                onInputModeToggle = {
+                    inputMode = if (inputMode == CanvasInputMode.Draw) CanvasInputMode.Pan else CanvasInputMode.Draw
+                    activePanel = null
                 },
                 onThemeToggle = { viewModel.toggleDarkCanvas() },
                 onCollaborationClick = {
@@ -228,6 +240,7 @@ fun ModernDrawingScreen(
                         collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
                         isCollaborating = uiState.collaborationRoomCode != null,
                         isCollaborationBusy = uiState.isCollaborationBusy,
+                        inputMode = inputMode,
                         isDarkCanvas = isDarkCanvas,
                         isVertical = true,
                         actions = dockActions
@@ -272,6 +285,7 @@ fun ModernDrawingScreen(
                         collaborationPanelOpen = activePanel == MarkupPanel.Collaboration,
                         isCollaborating = uiState.collaborationRoomCode != null,
                         isCollaborationBusy = uiState.isCollaborationBusy,
+                        inputMode = inputMode,
                         isDarkCanvas = isDarkCanvas,
                         isVertical = false,
                         actions = dockActions,
@@ -348,6 +362,7 @@ private fun MarkupDock(
     collaborationPanelOpen: Boolean,
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
+    inputMode: CanvasInputMode,
     isDarkCanvas: Boolean,
     isVertical: Boolean,
     actions: MarkupDockActions,
@@ -394,6 +409,7 @@ private fun MarkupDock(
                     collaborationPanelOpen = collaborationPanelOpen,
                     isCollaborating = isCollaborating,
                     isCollaborationBusy = isCollaborationBusy,
+                    inputMode = inputMode,
                     isDarkCanvas = isDarkCanvas,
                     isVertical = true,
                     actions = actions
@@ -419,6 +435,7 @@ private fun MarkupDock(
                     collaborationPanelOpen = collaborationPanelOpen,
                     isCollaborating = isCollaborating,
                     isCollaborationBusy = isCollaborationBusy,
+                    inputMode = inputMode,
                     isDarkCanvas = isDarkCanvas,
                     isVertical = false,
                     actions = actions
@@ -441,6 +458,7 @@ private fun DockContents(
     collaborationPanelOpen: Boolean,
     isCollaborating: Boolean,
     isCollaborationBusy: Boolean,
+    inputMode: CanvasInputMode,
     isDarkCanvas: Boolean,
     isVertical: Boolean,
     actions: MarkupDockActions
@@ -449,6 +467,11 @@ private fun DockContents(
     TopRoundButton(Icons.AutoMirrored.Filled.Undo, "Undo", actions.onUndo, enabled = canUndo, isDark = isDarkCanvas)
     TopRoundButton(Icons.AutoMirrored.Filled.Redo, "Redo", actions.onRedo, enabled = canRedo, isDark = isDarkCanvas)
     TopRoundButton(Icons.Default.Delete, "Delete selected", actions.onClear, isDark = isDarkCanvas)
+    InputModeButton(
+        mode = inputMode,
+        isDark = isDarkCanvas,
+        onClick = actions.onInputModeToggle
+    )
 
     DockHairline(isVertical, isDarkCanvas)
 
@@ -1394,6 +1417,91 @@ private fun PlusButton(
                 tint = if (isDark) Color.White else Color(0xFF111827),
                 modifier = Modifier.size(18.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun InputModeButton(
+    mode: CanvasInputMode,
+    isDark: Boolean,
+    onClick: () -> Unit
+) {
+    val panMode = mode == CanvasInputMode.Pan
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.size(30.dp),
+        shape = CircleShape,
+        color = if (panMode) {
+            if (isDark) Color(0xFF123A66) else Color(0xFFE8F1FF)
+        } else {
+            if (isDark) Color(0xFF2A2C31) else Color(0xFFF2F3F5)
+        },
+        border = if (panMode) {
+            androidx.compose.foundation.BorderStroke(1.dp, if (isDark) Color(0x660A84FF) else Color(0x33007AFF))
+        } else {
+            null
+        }
+    ) {
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(7.dp)
+        ) {
+            val ink = if (panMode) Color(0xFF0A84FF) else if (isDark) Color.White else Color(0xFF111827)
+            val w = size.width
+            val h = size.height
+            if (panMode) {
+                drawRoundRect(
+                    color = ink,
+                    topLeft = Offset(w * 0.30f, h * 0.14f),
+                    size = Size(w * 0.18f, h * 0.54f),
+                    cornerRadius = CornerRadius(w * 0.09f, w * 0.09f)
+                )
+                drawRoundRect(
+                    color = ink,
+                    topLeft = Offset(w * 0.48f, h * 0.24f),
+                    size = Size(w * 0.16f, h * 0.44f),
+                    cornerRadius = CornerRadius(w * 0.08f, w * 0.08f)
+                )
+                drawRoundRect(
+                    color = ink,
+                    topLeft = Offset(w * 0.64f, h * 0.34f),
+                    size = Size(w * 0.15f, h * 0.36f),
+                    cornerRadius = CornerRadius(w * 0.08f, w * 0.08f)
+                )
+                val palm = Path().apply {
+                    moveTo(w * 0.22f, h * 0.52f)
+                    cubicTo(w * 0.30f, h * 0.40f, w * 0.48f, h * 0.58f, w * 0.64f, h * 0.56f)
+                    cubicTo(w * 0.82f, h * 0.54f, w * 0.83f, h * 0.78f, w * 0.62f, h * 0.86f)
+                    lineTo(w * 0.34f, h * 0.86f)
+                    cubicTo(w * 0.24f, h * 0.78f, w * 0.16f, h * 0.64f, w * 0.22f, h * 0.52f)
+                    close()
+                }
+                drawPath(palm, ink)
+            } else {
+                drawLine(
+                    color = ink,
+                    start = Offset(w * 0.62f, h * 0.06f),
+                    end = Offset(w * 0.30f, h * 0.78f),
+                    strokeWidth = w * 0.18f,
+                    cap = StrokeCap.Round
+                )
+                val nib = Path().apply {
+                    moveTo(w * 0.22f, h * 0.84f)
+                    lineTo(w * 0.38f, h * 0.76f)
+                    lineTo(w * 0.30f, h * 0.94f)
+                    close()
+                }
+                drawPath(nib, ink)
+                drawLine(
+                    color = ink.copy(alpha = 0.65f),
+                    start = Offset(w * 0.66f, h * 0.05f),
+                    end = Offset(w * 0.78f, h * 0.20f),
+                    strokeWidth = w * 0.13f,
+                    cap = StrokeCap.Round
+                )
+            }
         }
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.input.pointer.PointerType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
 import `in`.innovaticshub.notepad.ui.canvas.model.RectF
 import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
@@ -48,6 +49,7 @@ fun ZoomableCanvas(
     modifier: Modifier = Modifier,
     backgroundColor: Color = Color.White,
     zoomState: ZoomState,
+    isPanMode: Boolean = false,
     onZoomChanged: () -> Unit = {},
     onDoubleTap: (() -> Unit)? = null
 ) {
@@ -64,7 +66,7 @@ fun ZoomableCanvas(
             .onSizeChanged { size ->
                 zoomState.updateViewportSize(size.width.toFloat(), size.height.toFloat())
             }
-            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds) {
+            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds, isPanMode) {
                 awaitEachGesture {
                     val gestureSelectedBounds = computeSelectedBounds(
                         uiState.strokes,
@@ -82,7 +84,7 @@ fun ZoomableCanvas(
                     var initialPinchDistance = 0f
                     var lastPinchCenter = Offset.Zero
 
-                    if (uiState.currentTool.type == ToolType.LASSO && gestureSelectedBounds != null) {
+                    if (!isPanMode && uiState.currentTool.type == ToolType.LASSO && gestureSelectedBounds != null) {
                         val handleRadius = (34f / zoomState.scale).coerceIn(16f, 70f)
                         val resizeHandle = gestureSelectedBounds.selectionHandles(zoomState.scale)
                             .minByOrNull { (it.center - firstCanvasPoint).getDistance() }
@@ -136,6 +138,16 @@ fun ZoomableCanvas(
                             val change = pressed.first()
                             val pos = change.position
                             val canvasPoint = zoomState.screenToCanvas(pos)
+
+                            if (isPanMode) {
+                                val delta = change.positionChange()
+                                if (delta != Offset.Zero) {
+                                    zoomState.panBy(delta)
+                                    onZoomChanged()
+                                }
+                                change.consume()
+                                continue
+                            }
 
                             if (selectionDragMode != null) {
                                 change.consume()
