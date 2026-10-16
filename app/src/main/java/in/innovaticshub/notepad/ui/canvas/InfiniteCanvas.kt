@@ -77,7 +77,7 @@ fun InfiniteCanvas(
         // Main canvas
         InfiniteCanvasRenderer(
             viewport = viewModel.getViewport(),
-            elements = viewModel.canvasState.map { it.elements },
+            elements = remember(viewModel) { viewModel.canvasState.map { it.elements } },
             layers = viewModel.layers,
             modifier = Modifier
                 .fillMaxSize()

@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Samsung Notes UI investigation → Drawly</title>
+<style>
+body{font:16px/1.65 system-ui,sans-serif;background:#f6f5f0;color:#242c29;max-width:1000px;margin:auto;padding:48px 24px}h1,h2{font-family:Georgia,serif;line-height:1.2}h1{font-size:42px}h2{margin-top:42px;font-size:28px}a{color:#176b5b}code{font-size:13px;overflow-wrap:anywhere}table{border-collapse:collapse;width:100%;background:#fffefa}td,th{border:1px solid #dfe3d9;padding:14px;text-align:left;vertical-align:top}small,.muted{color:#69736c}.label{color:#176b5b;letter-spacing:2px;font-size:12px}li{margin:10px 0}.callout{padding:20px;border-radius:18px;background:#d9ebe2}pre{white-space:pre-wrap;background:#fffefa;padding:20px;border-radius:16px;overflow:auto}
+</style>
+<p class="label">LOCAL ENGINEERING INVESTIGATION · 15 OCTOBER 2026</p>
+<h1>A familiar notebook workflow.<br>A distinct Drawly interface.</h1>
+<p><strong>Follow-up:</strong> the user requested a closer Samsung Notes layout. The warm-paper UI described here has been superseded by the <a href="editor-revision.html">compact editor reconstruction</a>, with current screenshots and explicit remaining differences.</p>
+<p>The supplied Samsung Notes APK was inspected to understand its screen architecture, list rendering, resource structure, and contextual editing controls. Drawly implements these general interaction patterns in its existing Kotlin/Compose project with an original warm-paper and teal design.</p>
+<div class="callout"><strong>Evidence boundary:</strong> findings below come from static JADX and Android SDK aapt2 inspection. The reference APK was not run. This is a focused UI investigation, not a complete reconstruction of Samsung Notes or a claim of feature parity.</div>
+<h2>Target and tools</h2>
+<ul>
+<li>Package: <code>com.samsung.android.app.notes</code>; version <strong>4.4.13.5</strong> / <code>441305000</code>; minimum SDK 23, target SDK 34. The package and version were decoded by aapt2.</li>
+<li>APK SHA-256: <code>A5A2B8BA1F4E7E5E047480F5571ACD4DC5274AF91B166F6339082D1C3A88E5E7</code>.</li>
+<li>REA checkout: <code>C:\Users\vardh\rea</code>, revision <code>75a4a14fa05d352762ffaefd3cd2e16515842b03</code>; CLI reports version 6.4.0.</li>
+<li>REA's <code>inspect-android-package</code> was attempted with the existing JADX JAR. It returned <code>capability_unavailable</code> because <code>native/windows/build/manifest.json</code> is absent. No successful REA Evidence record is claimed.</li>
+<li>Fallback: the checkout's existing <code>jadx-headless-mcp-0.7.1-all.jar</code>, through its public JADX Java API, and SDK 35 aapt2 <code>2.19-11948202</code>. JADX loaded 41,154 classes. Six relevant top-level classes were requested for decompilation.</li>
+<li>JADX JAR SHA-256: <code>6E5EACF500B64292BFB73C49797C1958F6EE44646E43E868039AE7FEB573FF75</code>.</li>
+</ul>
+<h2>What the artifact shows</h2>
+<table><thead><tr><th>Area</th><th>Observed evidence</th><th>Interpretation and Drawly implementation</th></tr></thead><tbody>
+<tr><td>Screen ownership</td><td><code>MemoListActivity</code> references <code>NotesFragment</code>. <code>NotesFragment</code> owns a <code>NotesPresenter</code> and delegates search, selection, folder, sharing, and lock operations.</td><td>The library and editor have separate responsibilities. Drawly uses a library ViewModel, a per-note editor ViewModel, and explicit routes to folders, Trash, settings, and canvas.</td></tr>
+<tr><td>Library layout</td><td><code>layout/noteslist_fragment</code> maps to <code>res/-wp.xml</code>. Its decoded tree contains a LinearLayout, ViewStubs, SwipeRefreshLayout, and an include of <code>noteslist_recyclerview</code> (<code>res/fDt.xml</code>).</td><td>The reference uses Android Views and XML in the inspected path. Drawly uses lazy Compose cards, switching between an adaptive grid and a one-column list.</td></tr>
+<tr><td>Card rendering</td><td><code>NotesAdapter</code> attaches to <code>NotesPenRecyclerView</code>, obtains entry types in <code>getItemViewType</code>, creates holders through <code>ViewHolderFactory</code>, and uses StaggeredGridLayoutManager layout parameters. <code>AdapterManager</code> responds to LiveData changes.</td><td>Different row types and thumbnail loading are explicit responsibilities. Drawly cards show real note titles, previews, edit dates, pin and lock states; the UI derives from repository flows.</td></tr>
+<tr><td>Composer</td><td><code>activity_composer_base</code> maps to <code>res/lAk.xml</code>, whose root is <code>BaseComposerActivityLayout</code>. Resources include <code>comp_hw_floating_menu</code>, rich-text style/alignment menus, insertion rows, and page-list controls.</td><td>Text and handwriting have contextual tools. Drawly uses an editable paper surface, a formatting toolbar tied to the focused paragraph, insertion actions, and a separate persisted drawing workspace.</td></tr>
+<tr><td>Adaptive chrome</td><td>Resource <code>comp_hw_floating_menu_container_width</code> declares 360dp by default and 700dp for <code>sw600dp</code>. The corresponding corner radius is 22dp and elevation 4dp. These are declarations, not measured runtime geometry.</td><td>The reference explicitly adapts tool chrome. Drawly uses a modal drawer on phones and a persistent sidebar at 840dp, adaptive card columns, a width-constrained editor, and existing portrait/landscape drawing docks.</td></tr>
+<tr><td>Organization and modes</td><td>Named resources include <code>noteslist_action_mode_layout</code>, <code>noteslist_nonote_layout</code>, drawer entries, folder classes, and composer insert/page settings menus.</td><td>Selection, empty states, folders, and editing modes are first-class flows. Drawly provides selection pin/move/trash actions, empty/search states, folder creation/rename/colour, restore/permanent deletion, and note-level paper options.</td></tr>
+</tbody></table>
+<h2>Original visual direction</h2>
+<p>Drawly uses warm ivory <code>#F6F5F0</code>, paper <code>#FFFEFA</code>, teal <code>#176B5B</code>, restrained sage and sand surfaces, serif display headings, and sans-serif reading text. Cards use 22dp corners, generous internal spacing, and subtle borders. A complete dark palette and persistent system/light/dark preference are provided. Samsung logos, images, icons, fonts, and decompiled implementation code were not incorporated into Drawly.</p>
+<h2>Implemented flows</h2>
+<ul>
+<li>Library with live title/body search, grid/list preference, sorting, pinned filter, folder filtering, note creation, checklists, and multi-selection actions. Locked previews and body search are hidden.</li>
+<li>Rich text with bold/italic/underline/strike, font/highlight colours, sizes, alignment, lists, indentation, undo/redo, autosave, explicit save-on-return, and save failure feedback.</li>
+<li>Image import, PDF attachment/opening, voice recording/playback, note sharing as text, pinning, biometric/device-credential lock, note colours, and plain/ruled/grid/dotted paper.</li>
+<li>Per-note persisted drawings plus the existing standalone sketchbook, drawing tools, selection transforms, zoom/pan, and collaboration entry points.</li>
+<li>Folder management, Trash restoration/permanent deletion with confirmation, appearance/layout/sort preferences, and phone/tablet navigation.</li>
+</ul>
+<h2>Functional ink studio</h2>
+<p>The follow-up implementation adds a complete local ink workflow. See the <a href="ink-studio-implementation.html">handwriting implementation and verification report</a> for tool behavior, screenshots, and remaining limits.</p>
+<ul>
+<li>Pressure-sensitive ballpoint, fountain, fineliner, graphite pencil, marker, brush, calligraphy, and highlighter; smoothing, nib angle, opacity, colours, favourites, dotted/dashed/glow styles.</li>
+<li>Area and whole-stroke erasers, highlighter-only erasing, lasso selection, move/resize/rotate/flip, copy/cut/paste, recolour, thickness, layering, and document undo/redo.</li>
+<li>Vector shapes, optional shape correction, straight highlighter, pen-only input with palm rejection, two-finger pan/zoom, paper templates, multiple pages, and PDF import for annotation.</li>
+<li>PNG export, multipage PDF export including imported backgrounds, image sharing, and on-device handwriting-to-text with a downloadable ML Kit language model.</li>
+</ul>
+<h2>Scope and remaining differences</h2>
+<p>Samsung's proprietary document format and cloud service, image OCR, widgets, device-specific S Pen gestures, and multiwindow behavior are outside this implementation. Existing PDF attachment blocks still open in a viewer; new PDF imports create editable ink pages. Rich text is paragraph based. The note lock is an access gate, not file encryption. Collaboration metadata support is implemented in both app and worker source; the worker needs deployment, and live cross-device verification remains outstanding. No claim of full Samsung feature parity is made.</p>
+<p>JADX emitted warnings while reconstructing some dependency methods. Decompiled Java is an approximation of the binary, not original source. Static resource names establish the presence of controls, not their complete runtime behavior.</p>
+<h2>Verification</h2>
+<p><strong>Debug APK built; 30 tests passed (12 JVM and 18 Android); lint completed with 0 errors and 72 warnings.</strong> Coverage includes rich text, persistence, autosave, locked-note loading, rendered pressure widths, distinct pen styles, exact sparse-segment erasing, page history, selection transforms, favourites, document export, imported PDF background pixels, and injected stylus pressure with simultaneous palm contact. Two existing example tests are included in the count. The collaboration worker passes TypeScript checking.</p>
+<p>Manual emulator review covered a 1080×2400 phone, light/dark themes, a 1600×1000 tablet configuration with persistent navigation, drawing creation and preview generation, and an app force-stop/relaunch followed by reopening the saved text and drawing. Tests used a temporary Android 17 emulator; physical-device stylus behavior, authentication success on enrolled hardware, media-device variations, and live collaboration remain unverified.</p>
+<h2>Captured Drawly screens</h2>
+<p>These captures show the implemented app. “Field notes” is temporary review data created in the emulator, not content seeded into the app.</p>
+<div style="display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap">
+<figure style="margin:0;flex:1;min-width:210px"><a href="ui/phone-light.png"><img src="ui/phone-light.png" alt="Drawly note library in light mode with a saved drawing preview" style="width:100%;border-radius:18px"></a><figcaption>Library · light</figcaption></figure>
+<figure style="margin:0;flex:1;min-width:210px"><a href="ui/editor-light.png"><img src="ui/editor-light.png" alt="Drawly text editor with a saved drawing attachment" style="width:100%;border-radius:18px"></a><figcaption>Editor · light</figcaption></figure>
+<figure style="margin:0;flex:1;min-width:210px"><a href="ui/phone-dark.png"><img src="ui/phone-dark.png" alt="Drawly empty library in dark mode" style="width:100%;border-radius:18px"></a><figcaption>Library · dark</figcaption></figure>
+</div>
+<figure style="margin:28px 0"><a href="ui/tablet-dark.png"><img src="ui/tablet-dark.png" alt="Drawly tablet layout with a persistent sidebar" style="width:100%;border-radius:18px"></a><figcaption>Tablet · persistent sidebar</figcaption></figure>
+<h2>Reproduce and inspect</h2>
+<pre>powershell -File tools/reverse-engineering/InspectSamsung.ps1
+
+# Android verification, with an emulator running:
+.\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:connectedDebugAndroidTest :app:lintDebug</pre>
+<p>Raw class reconstructions, resource dump, layout trees, and tool diagnostics are retained locally in <code>samsung_app/analysis</code> (ignored by Git). The APK is also ignored. <a href="../tools/reverse-engineering/InspectSamsung.ps1">Inspection script</a> · <a href="../tools/reverse-engineering/InspectSamsung.java">JADX inspector</a> · <a href="../app/src/main/java/in/innovaticshub/notepad/feature/NotebookApp.kt">App navigation</a>.</p>
+<p class="muted">Android 17 test compatibility: Espresso was pinned to 3.7.0 after the old test dependency failed on InputManager reflection. The fix is documented in the <a href="https://github.com/android/android-test/issues/2507">upstream AndroidX issue</a>.</p>
+</html>

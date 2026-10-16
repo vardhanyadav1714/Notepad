@@ -1,0 +1,23 @@
+Drawly 2.0 app icon
+
+Original artwork edited with the built-in image_gen tool. The blue notebook uses a pearl ice-blue artist's paintbrush and the exact word drawly in blue cursive. Previous masters are preserved as drawly-fountain-icon.png and drawly-dark-brush-icon.png.
+
+Sources of visual research (references, not reused artwork):
+https://brandpad.io/goodnotes-guidelines/
+https://notability.com/apps
+
+Exports:
+drawly-icon-master.png - original generated artwork
+drawly-icon-1024.png - reusable 1024px square PNG
+drawly-icon-512.png - reusable 512px square PNG
+
+The Android manifest uses drawly_launcher, supplied at all five launcher densities. Android launcher normalization handles the square artwork. Existing adaptive-icon artwork is no longer referenced by the manifest.
+
+Light handle editing prompt (2.0):
+Edit this exact Drawly notebook app icon. Change ONLY the paintbrush HANDLE from dark navy to a refined LIGHT PEARL ICE-BLUE lacquer, almost white with a soft cool-blue tint (#DFEFFF), and delicate silver highlights. Keep the handle's exact shape, angle, position and glossy material. Keep the metal ferrule silver, the bristles dark natural brown with blue paint, the exact cursive word drawly unchanged and fully readable, and preserve all other details: saturated blue gradient background, white notebook, binding rings, page textures, lighting, shadows and framing. No extra graphics or text. Output the same square icon with only the lighter brush handle changed.
+
+Previous brush/cursive prompt (archived):
+Edit the attached Drawly app icon with exactly two changes. 1. Replace the navy fountain pen on the right with a stylish premium artist's round PAINTBRUSH, in the same diagonal position, pointing down-left: sleek midnight-blue lacquer handle, refined silver ferrule, beautifully tapered natural dark bristles with a small amount of cobalt-blue paint at the tip. It must unmistakably look like a real elegant paintbrush, not a pen, marker or stylus. Its bristle tip touches the end of the lettering. 2. Completely remove the existing abstract blue loop/flourish from the notebook page. In its place write the exact lowercase word 'drawly' in large beautiful connected CURSIVE handwriting in vivid cobalt blue. Spell exactly d-r-a-w-l-y. One readable flowing word across the center of the white page, gently following its perspective, with tasteful thick/thin brush-lettering strokes, attractive ascenders and descender, balanced spacing. No additional scribbles, loops separate from the word, or other text. Keep the lettering fully visible and not covered by the brush. Preserve the existing blue gradient background, notebook size and angle, white textured paper, three dark binding rings, page edges, lighting, shadows, square framing and premium material quality. Do not zoom out, add borders or change the composition. Output one finished square app-icon artwork.
+
+Previous fountain-pen prompt (archived):
+Edit this exact blue Drawly notebook app icon. Change ONLY the pen. Replace the existing graphite digital stylus with a stylish premium FOUNTAIN PEN in the identical diagonal position on the right, writing the same blue ink flourish on the notebook. The fountain pen should have a sleek deep midnight navy lacquer barrel, elegant brushed platinum trim, a short attractive tapered grip, and a clearly visible finely engraved silver fountain nib with a slit and breather hole touching the end of the ink line. Its upper end should have a refined flat navy finial with a slim platinum ring, not a large silver rounded stylus cap. Sophisticated contemporary writing instrument, visually simple enough for an app icon, realistic premium materials, restrained metallic highlights, no brand name, no extra cap alongside it. Preserve the exact existing vivid blue background, white sketchbook, all three dark binding loops, paper texture, blue handwritten flourish, perspective, object sizes, lighting, shadows and overall composition. Do not zoom out or add margins. Keep the original full composition. Output one square app icon, no text, no mockup, no watermark.

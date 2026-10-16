@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drawly 2.0 — a calmer workspace</title>
+<style>body{font:16px/1.65 system-ui,sans-serif;max-width:1160px;margin:auto;padding:36px 22px;color:#192338;background:#f5f7fc}h1{font-size:38px;line-height:1.15}h2{margin-top:32px}a{color:#2864df}.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:22px}figure{margin:0}img{max-width:100%;border-radius:18px;border:1px solid #dfe5f0}figcaption{font-size:14px;color:#65728a}code{overflow-wrap:anywhere}aside{padding:18px 22px;background:#e7eeff;border-radius:18px}</style>
+<h1>Drawly 2.0: a calmer space for ideas</h1>
+<p>Drawly now uses its own blue visual identity, compact tools and a simpler library. Existing note data, ink styles, page gestures, exports and collaboration remain available.</p>
+<h2>What changed</h2>
+<ul><li>Blue accents, cool neutral surfaces, a small Drawly label in the editor and a fixed library header replace the earlier orange accents and oversized collapsing heading.</li>
+<li>The handwriting dock is centred and rounded, with fewer buttons. Writing pad, shapes, recognition, zoom lock, auto-fix and page controls remain in the tool palette. The Write/Scroll toggle stays visible on phones and tablets.</li>
+<li>The tablet page rail has smaller rounded previews and an always-reachable New page button. It no longer puts the add button after a potentially long list of thumbnails.</li>
+<li>The library uses shorter cards and a labelled New note button. The heading no longer changes layout on every scroll event.</li>
+<li>The app icon retains the cursive drawly notebook design with a pearl ice-blue brush handle. Earlier icon masters are retained in branding.</li></ul>
+<h2>Rendering and scrolling</h2>
+<p>Previously, adapting ink to dark mode created new stroke objects. Adding another stroke recreated those display copies for the whole page, discarding their cached curves. The canvas now applies display colours when drawing the original stroke, retaining its geometry across new strokes and theme changes. Filled pen previews also avoid calculating an unused smoothed centreline before calculating their filled envelope.</p>
+<p>The library reuses a themed thumbnail while its source document is unchanged. A document save invalidates that preview. This avoids decoding and drawing the note again when a card scrolls back into view.</p>
+<h2>Editor and library</h2>
+<div class="screens"><figure><img src="ui/modern-editor-light.png" alt="Drawly editor in light mode"><figcaption>Light editor and tool dock</figcaption></figure><figure><img src="ui/modern-editor-dark.png" alt="Drawly editor in dark mode"><figcaption>Dark editor with readable ink</figcaption></figure><figure><img src="ui/modern-library.png" alt="Drawly library with compact cards"><figcaption>Compact library and New note action</figcaption></figure></div>
+<figure><img src="ui/modern-tablet-pages.png" alt="Tablet editor with page rail and compact dock"><figcaption>Tablet page rail with a pinned New page action</figcaption></figure>
+<h2>Validation</h2>
+<p id="validation">All 86 tests passed: 26 JVM tests and 60 Android tests, including the three local TLS/WebSocket collaboration tests. The new regressions verify original geometry-cache reuse on a 160-stroke page, thumbnail reuse and invalidation after saving, and access to the tool palette with the explicit writing-mode control. Existing checks cover writing in both themes, pressure/palm input, rotation, page creation, zoom cancellation, persistence, text, exports and images. Lint completed with 0 errors and 67 warnings. Both APK signatures verified. Logs: build-modern-final.log and build-modern-all-tests.log.</p>
+<aside>The physical Samsung tablet was not connected during this update. Android checks and screenshots use the dedicated emulator. These results verify behaviour and removal of redundant work; they do not establish a physical-device frame rate or S Pen latency.</aside>
+<h2>Files</h2>
+<p>Preview update: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\device-preview\notes-preview.apk</code></p>
+<p>Standard package: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\debug\app-debug.apk</code></p>
+<p>Icon: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\branding\drawly-icon-1024.png</code>. The built-in imagegen prompt and PNG variants are included in <code>branding/drawly-icon-assets.zip</code>.</p>
+</html>

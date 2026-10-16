@@ -1,0 +1,62 @@
+[
+  {
+    "check": "Phone to tablet: exact pen settings, pressure, tilt and geometry",
+    "passed": true,
+    "strokes": 1
+  },
+  {
+    "check": "Tablet to phone: exact ink and geometry",
+    "passed": true,
+    "strokes": 2
+  },
+  {
+    "check": "Undo preserves the other participant ink",
+    "passed": true,
+    "strokes": 1
+  },
+  {
+    "check": "Redo reaches the other device",
+    "passed": true,
+    "strokes": 2
+  },
+  {
+    "check": "Selection movement synchronizes",
+    "passed": true,
+    "strokes": 2
+  },
+  {
+    "check": "Ink on a second page stays on that page",
+    "passed": true,
+    "strokes": 3
+  },
+  {
+    "check": "Stroke eraser synchronizes",
+    "passed": true,
+    "strokes": 2
+  },
+  {
+    "check": "Undo eraser restores remote ink",
+    "passed": true,
+    "strokes": 3
+  },
+  {
+    "check": "Rejoin recovers missed strokes without duplicates",
+    "passed": true,
+    "strokes": 4
+  },
+  {
+    "check": "Offline ink is retained and sent after automatic reconnect",
+    "passed": true,
+    "strokes": 5
+  },
+  {
+    "check": "Simultaneous ink additions converge",
+    "passed": true,
+    "strokes": 7
+  },
+  {
+    "check": "A fresh client recovers all ink from server storage",
+    "passed": true,
+    "strokes": 7
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "library": "base/lib/arm64-v8a/libandroidx.graphics.path.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/arm64-v8a/libdatastore_shared_counter.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/arm64-v8a/libdigitalink.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/armeabi-v7a/libandroidx.graphics.path.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/armeabi-v7a/libdatastore_shared_counter.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/armeabi-v7a/libdigitalink.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86/libandroidx.graphics.path.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86/libdatastore_shared_counter.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86/libdigitalink.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86_64/libandroidx.graphics.path.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86_64/libdatastore_shared_counter.so",
+    "symbol_table": false,
+    "debug_information": false
+  },
+  {
+    "library": "base/lib/x86_64/libdigitalink.so",
+    "symbol_table": false,
+    "debug_information": false
+  }
+]

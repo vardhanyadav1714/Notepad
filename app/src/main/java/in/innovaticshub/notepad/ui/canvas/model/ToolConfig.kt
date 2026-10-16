@@ -1,7 +1,6 @@
 package `in`.innovaticshub.notepad.ui.canvas.model
 
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.copy
 
 /**
  * Represents the type of drawing tool with unique characteristics.
@@ -27,8 +26,23 @@ enum class DrawingStyle {
     SKETCHY,         // Multiple rough lines
     CALIGRAPHY,      // Variable width based on pressure
     DOTTED,          // Dashed/dotted line
-    GLOW             // Glowing effect
+    GLOW,            // Glowing effect
+    FOUNTAIN,
+    DASHED
 }
+
+enum class EraserMode { SEGMENT, STROKE }
+enum class ShapeKind { LINE, ARROW, RECTANGLE, ELLIPSE, TRIANGLE, DIAMOND }
+enum class PaperStyle { PLAIN, RULED, GRID, DOTTED }
+enum class SelectionShape { LASSO, RECTANGLE }
+
+data class CanvasPage(
+    val id: String = "page-1",
+    val pdfPath: String? = null,
+    val pdfPageIndex: Int = 0,
+    val width: Float = 1000f,
+    val height: Float = 1414f
+)
 
 /**
  * Configuration for a drawing tool.
@@ -46,7 +60,14 @@ data class ToolConfig(
     val color: Color = Color.Black,
     val baseWidth: Float = 4f,
     val opacity: Float = 1f,
-    val usePressure: Boolean = true
+    val usePressure: Boolean = true,
+    val pressureSensitivity: Float = 1f,
+    val smoothing: Float = 0.55f,
+    val nibAngle: Float = 45f,
+    val eraserMode: EraserMode = EraserMode.SEGMENT,
+    val eraseHighlighterOnly: Boolean = false,
+    val shape: ShapeKind = ShapeKind.LINE,
+    val constrainShape: Boolean = false
 ) {
     /**
      * Calculate actual stroke width based on pressure.
@@ -63,7 +84,8 @@ data class ToolConfig(
             ToolType.LASSO, ToolType.SHAPE, ToolType.TEXT -> baseWidth
         }
         return if (usePressure && type != ToolType.ERASER) {
-            base * (0.3f + pressure * 0.7f)
+            val p = pressure.takeIf { it.isFinite() }?.coerceIn(0f, 1f) ?: 1f
+            base * (1f - pressureSensitivity.coerceIn(0f, 1f) * (1f - (0.12f + p * 0.88f)))
         } else {
             base
         }
@@ -75,7 +97,7 @@ data class ToolConfig(
     fun effectiveColor(): Color {
         return when (type) {
             ToolType.ERASER -> Color.Transparent
-            else -> color.copy(alpha = opacity)
+            else -> color.copy(alpha = color.alpha * opacity.coerceIn(0f, 1f))
         }
     }
 
@@ -179,7 +201,7 @@ data class ToolConfig(
         // Brush presets
         val INK_BRUSH = ToolConfig(
             type = ToolType.BRUSH,
-            style = DrawingStyle.CALIGRAPHY,
+            style = DrawingStyle.SOLID,
             color = Color(0xFF1C1C1E),
             baseWidth = 6f,
             opacity = 0.95f,
@@ -233,7 +255,7 @@ data class ToolConfig(
                 ToolType.MARKER -> MARKER_YELLOW
                 ToolType.HIGHLIGHTER -> HIGHLIGHTER_YELLOW
                 ToolType.BRUSH -> INK_BRUSH
-                ToolType.CALLIGRAPHY -> INK_BRUSH.copy(style = DrawingStyle.CALIGRAPHY)
+                ToolType.CALLIGRAPHY -> INK_BRUSH.copy(type = ToolType.CALLIGRAPHY, style = DrawingStyle.CALIGRAPHY)
                 ToolType.ERASER -> MEDIUM_ERASER
                 ToolType.LASSO -> ToolConfig(
                     type = ToolType.LASSO,
@@ -257,7 +279,9 @@ data class StrokePoint(
     val x: Float,
     val y: Float,
     val pressure: Float = 1f,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    val tilt: Float = 0f,
+    val orientation: Float = 0f
 )
 
 /**
@@ -267,22 +291,27 @@ data class Stroke(
     val id: String = generateId(),
     val points: List<StrokePoint>,
     val path: androidx.compose.ui.graphics.Path,
-    val toolConfig: ToolConfig
+    val toolConfig: ToolConfig,
+    val pageId: String = "page-1"
 ) {
+    private val cachedRenderData = lazy(LazyThreadSafetyMode.PUBLICATION) {
+        `in`.innovaticshub.notepad.ui.canvas.engine.InkGeometry.build(points, toolConfig)
+    }
+    internal val renderData get()=cachedRenderData.value
+    internal val hasCachedRenderData get()=cachedRenderData.isInitialized()
     companion object {
-        private const val ID_PREFIX = "stroke_"
-        private var idCounter = 0L
-
-        fun generateId(): String {
-            return "${ID_PREFIX}${System.currentTimeMillis()}_${idCounter++}"
-        }
+        fun generateId(): String = "stroke_${java.util.UUID.randomUUID()}"
     }
 
     val isEmpty: Boolean
-        get() = points.size < 2
+        get() = points.isEmpty()
 
-    val bounds: RectF
-        get() = computeBounds(points)
+    val bounds: RectF by lazy(LazyThreadSafetyMode.PUBLICATION) {
+        computeBounds(points).let { bounds ->
+            val radius = toolConfig.strokeWidth() / 2f
+            RectF(bounds.left - radius, bounds.top - radius, bounds.right + radius, bounds.bottom + radius)
+        }
+    }
 }
 
 /**
@@ -326,17 +355,16 @@ class StrokeBuilder(
     private val toolConfig: ToolConfig,
     private val minPointDistance: Float = 0.35f
 ) {
+    private var strokeId = Stroke.generateId()
     private val _points = mutableListOf<StrokePoint>()
-    private var _path = androidx.compose.ui.graphics.Path()
 
     val points: List<StrokePoint> get() = _points.toList()
-    val path: androidx.compose.ui.graphics.Path get() = _path
-    val isEmpty: Boolean get() = _points.size < 2
+    val isEmpty: Boolean get() = _points.isEmpty()
 
     fun addPoint(point: StrokePoint) {
+        if (!point.x.isFinite() || !point.y.isFinite()) return
         if (_points.isEmpty()) {
             _points.add(point)
-            _path.moveTo(point.x, point.y)
             return
         }
 
@@ -347,23 +375,27 @@ class StrokeBuilder(
 
         _points.add(point)
 
-        if (_points.size >= 3) {
-            val p1 = _points[_points.size - 2]
-            val p2 = _points[_points.size - 1]
-            _path.quadraticTo(
-                p1.x, p1.y,
-                (p1.x + p2.x) / 2f,
-                (p1.y + p2.y) / 2f
-            )
-        } else {
-            _path.lineTo(point.x, point.y)
-        }
     }
 
     fun buildPreview(): Stroke {
+        if(toolConfig.type==ToolType.HIGHLIGHTER && toolConfig.constrainShape && _points.size>1) {
+            val points=listOf(_points.first(),_points.last())
+            return Stroke(strokeId,points,`in`.innovaticshub.notepad.ui.canvas.engine.InkGeometry.path(points),toolConfig.copy(smoothing=0f))
+        }
+        if (toolConfig.type == ToolType.SHAPE && _points.size > 1) {
+            val shaped = `in`.innovaticshub.notepad.ui.canvas.engine.ShapeGeometry.points(_points.first(), _points.last(), toolConfig.shape, toolConfig.constrainShape)
+            val ink = toolConfig.copy(type = ToolType.PEN, style = DrawingStyle.SOLID, usePressure = false, smoothing = 0f)
+            return Stroke(strokeId, shaped, `in`.innovaticshub.notepad.ui.canvas.engine.InkGeometry.path(shaped), ink)
+        }
+        val snapshot=points
+        // Filled ink uses renderData's smoothed envelope. Only line effects and
+        // lasso actually draw this centreline; avoid interpolating it twice.
+        val linePoints=if(toolConfig.type==ToolType.LASSO || toolConfig.style in listOf(DrawingStyle.DASHED,DrawingStyle.DOTTED,DrawingStyle.GLOW))
+            `in`.innovaticshub.notepad.ui.canvas.engine.InkGeometry.samples(snapshot,toolConfig.smoothing) else snapshot
         return Stroke(
-            points = points,
-            path = pathWithFinalSegment(),
+            id = strokeId,
+            points = snapshot,
+            path = `in`.innovaticshub.notepad.ui.canvas.engine.InkGeometry.path(linePoints),
             toolConfig = toolConfig
         )
     }
@@ -372,15 +404,6 @@ class StrokeBuilder(
 
     fun reset() {
         _points.clear()
-        _path = androidx.compose.ui.graphics.Path()
-    }
-
-    private fun pathWithFinalSegment(): androidx.compose.ui.graphics.Path {
-        val previewPath = _path.copy()
-        if (_points.size >= 2) {
-            val last = _points.last()
-            previewPath.lineTo(last.x, last.y)
-        }
-        return previewPath
+        strokeId = Stroke.generateId()
     }
 }

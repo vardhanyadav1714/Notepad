@@ -6,6 +6,9 @@ type StrokePoint = {
   x: number;
   y: number;
   pressure: number;
+  timestamp?: number;
+  tilt?: number;
+  orientation?: number;
 };
 
 type ToolConfig = {
@@ -15,6 +18,7 @@ type ToolConfig = {
   baseWidth: number;
   opacity: number;
   usePressure: boolean;
+  settings?: Record<string, unknown>;
 };
 
 type RemoteStroke = {
@@ -23,6 +27,7 @@ type RemoteStroke = {
   points: StrokePoint[];
   toolConfig: ToolConfig;
   createdAt: number;
+  pageId?: string;
 };
 
 type RemoteCanvasState = {
@@ -71,7 +76,9 @@ export default {
             namespace: "android_app",
             package_name: "in.innovaticshub.notepad",
             sha256_cert_fingerprints: [
-              "54:EF:4A:77:47:04:7A:E6:58:44:04:51:87:0D:C1:A5:DC:E6:F7:13:12:68:DA:D2:D3:DC:1B:F9:45:F8:8C:A2"
+              "54:EF:4A:77:47:04:7A:E6:58:44:04:51:87:0D:C1:A5:DC:E6:F7:13:12:68:DA:D2:D3:DC:1B:F9:45:F8:8C:A2",
+              "92:94:0F:E8:5E:23:8D:91:32:BB:4C:7E:17:3E:9B:89:71:A1:17:E1:E2:22:BB:CC:B7:9B:AC:09:5D:83:D5:05",
+              "B9:42:A3:F9:A6:7F:8B:A6:F2:B2:AD:1D:FC:12:08:32:EF:5D:4E:CF:5A:AF:67:87:7D:0E:BD:33:EA:8E:A7:81"
             ]
           }
         }
@@ -317,14 +324,17 @@ function sanitizeStroke(input: RemoteStroke): RemoteStroke | null {
   const points = input.points.map((point) => ({
     x: finiteNumber(point.x),
     y: finiteNumber(point.y),
-    pressure: finiteNumber(point.pressure, 1)
+    pressure: finiteNumber(point.pressure, 1),
+    timestamp: finiteNumber(point.timestamp, 0) ?? 0,
+    tilt: finiteNumber(point.tilt, 0) ?? 0,
+    orientation: finiteNumber(point.orientation, 0) ?? 0
   }));
 
   if (points.some((point) => point.x === null || point.y === null || point.pressure === null)) {
     return null;
   }
 
-  const toolConfig = input.toolConfig ?? {};
+  const toolConfig: Partial<ToolConfig> = input.toolConfig ?? {};
   return {
     id: input.id,
     userId: input.userId,
@@ -335,9 +345,30 @@ function sanitizeStroke(input: RemoteStroke): RemoteStroke | null {
       colorArgb: finiteNumber(toolConfig.colorArgb, 0xff000000) ?? 0xff000000,
       baseWidth: finiteNumber(toolConfig.baseWidth, 4) ?? 4,
       opacity: finiteNumber(toolConfig.opacity, 1) ?? 1,
-      usePressure: Boolean(toolConfig.usePressure)
+      usePressure: Boolean(toolConfig.usePressure),
+      settings: sanitizePenSettings(toolConfig.settings)
     },
-    createdAt: finiteNumber(input.createdAt, Date.now()) ?? Date.now()
+    createdAt: finiteNumber(input.createdAt, Date.now()) ?? Date.now(),
+    pageId: typeof input.pageId === "string" && input.pageId.length <= 160 ? input.pageId : "page-1"
+  };
+}
+
+function sanitizePenSettings(input: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  return {
+    type: stringOr(input.type, "PEN").slice(0, 40),
+    style: stringOr(input.style, "SOLID").slice(0, 40),
+    color: finiteNumber(input.color, 0xff000000) ?? 0xff000000,
+    width: Math.min(200, Math.max(0.1, finiteNumber(input.width, 4) ?? 4)),
+    opacity: Math.min(1, Math.max(0, finiteNumber(input.opacity, 1) ?? 1)),
+    pressure: input.pressure !== false,
+    sensitivity: Math.min(1, Math.max(0, finiteNumber(input.sensitivity, 1) ?? 1)),
+    smoothing: Math.min(1, Math.max(0, finiteNumber(input.smoothing, 0.55) ?? 0.55)),
+    nibAngle: Math.min(180, Math.max(0, finiteNumber(input.nibAngle, 45) ?? 45)),
+    eraserMode: input.eraserMode === "STROKE" ? "STROKE" : "SEGMENT",
+    highlighterOnly: input.highlighterOnly === true,
+    shape: stringOr(input.shape, "LINE").slice(0, 40),
+    constrain: input.constrain === true
   };
 }
 

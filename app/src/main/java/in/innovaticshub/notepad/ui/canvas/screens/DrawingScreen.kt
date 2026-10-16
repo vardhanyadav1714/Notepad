@@ -67,7 +67,7 @@ import androidx.compose.ui.unit.dp
 import `in`.innovaticshub.notepad.ui.canvas.components.ColorPalette
 import `in`.innovaticshub.notepad.ui.canvas.components.DrawingToolbar
 import `in`.innovaticshub.notepad.ui.canvas.components.StrokeWidthSlider
-import `in`.innovaticshub.notepad.ui.canvas.drawing.SimpleDrawingCanvas
+import `in`.innovaticshub.notepad.ui.canvas.drawing.DrawingCanvas
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
 import `in`.innovaticshub.notepad.ui.canvas.viewmodel.DrawingViewModel
 import `in`.innovaticshub.notepad.ui.theme.AppColors
@@ -133,7 +133,7 @@ fun DrawingScreen(
                 .padding(paddingValues)
         ) {
             // Drawing Canvas
-            SimpleDrawingCanvas(
+            DrawingCanvas(
                 viewModel = viewModel,
                 modifier = Modifier.fillMaxSize()
             )
@@ -446,7 +446,7 @@ fun DrawingScreenWithBottomSheet(
                 .fillMaxSize()
                 .padding(paddingValues)
         ) {
-            SimpleDrawingCanvas(
+            DrawingCanvas(
                 viewModel = viewModel,
                 modifier = Modifier.fillMaxSize()
             )

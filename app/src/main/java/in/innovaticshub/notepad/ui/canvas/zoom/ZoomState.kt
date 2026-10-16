@@ -12,9 +12,7 @@ import kotlin.math.exp
 import kotlin.math.ln
 
 /**
- * Camera state for an infinite canvas: pan, zoom, and screen-aware transforms.
- *
- * Uses logarithmic scale internally so pinch zoom feels even at 0.1% and 400%.
+ * Camera state with finite zoom limits and screen-aware pan/zoom transforms.
  */
 @Stable
 class ZoomState {
@@ -29,13 +27,17 @@ class ZoomState {
     private val _isTransformMode = mutableStateOf(false)
     val isTransformMode: Boolean get() = _isTransformMode.value
 
-    var viewportWidth: Float = 0f
+    var viewportWidth: Float by mutableFloatStateOf(0f)
         private set
-    var viewportHeight: Float = 0f
+    var viewportHeight: Float by mutableFloatStateOf(0f)
         private set
 
-    val minScale: Float = MIN_SCALE
-    val maxScale: Float = MAX_SCALE
+    var minScale: Float = MIN_SCALE; private set
+    var maxScale: Float = MAX_SCALE; private set
+    fun setLimits(minimum:Float,maximum:Float) {
+        if(!minimum.isFinite() || !maximum.isFinite() || minimum<=0f || maximum<minimum) return
+        minScale=minimum;maxScale=maximum;setScale(scale)
+    }
 
     private fun syncScaleFromLog() {
         _scale.floatValue = exp(logScale).coerceIn(minScale, maxScale)
@@ -45,6 +47,7 @@ class ZoomState {
         log.coerceIn(ln(minScale), ln(maxScale))
 
     fun setScale(newScale: Float) {
+        if(!newScale.isFinite() || newScale<=0f) return
         logScale = clampLogScale(ln(newScale.coerceIn(minScale, maxScale)))
         syncScaleFromLog()
     }
@@ -59,11 +62,25 @@ class ZoomState {
     }
 
     fun setOffset(newOffset: Offset) {
+        if(!newOffset.x.isFinite() || !newOffset.y.isFinite()) return
         _offset.value = newOffset
     }
 
     fun panBy(delta: Offset) {
+        if(!delta.x.isFinite() || !delta.y.isFinite()) return
         _offset.value += delta
+    }
+
+    /** Keep finite documents reachable; centre a document that fits inside the viewport. */
+    fun constrainDocument(width:Float,height:Float,padding:Float=24f,bottomSpace:Float=180f) {
+        if(viewportWidth<=0f || viewportHeight<=0f) return
+        val scaledWidth=width*scale
+        val x=if(scaledWidth<=viewportWidth-padding*2) (viewportWidth-scaledWidth)/2
+            else offset.x.coerceIn(viewportWidth-scaledWidth-padding,padding)
+        val scaledHeight=height*scale+bottomSpace
+        val y=if(scaledHeight<=viewportHeight-padding*2) (viewportHeight-scaledHeight)/2
+            else offset.y.coerceIn(minOf(padding,viewportHeight-scaledHeight),padding)
+        setOffset(Offset(x,y))
     }
 
     /**
@@ -71,6 +88,7 @@ class ZoomState {
      * Zoom is applied in log-space; pan is applied in screen space.
      */
     fun transform(centroid: Offset, zoomFactor: Float, panDelta: Offset) {
+        if(!centroid.x.isFinite() || !centroid.y.isFinite() || !panDelta.x.isFinite() || !panDelta.y.isFinite() || !zoomFactor.isFinite() || zoomFactor<=0f) return
         if (zoomFactor == 1f && panDelta == Offset.Zero) return
 
         val smoothedZoom = 1f + (zoomFactor - 1f) * PINCH_SENSITIVITY
@@ -80,7 +98,7 @@ class ZoomState {
 
         if (newScale != oldScale) {
             val scaleRatio = newScale / oldScale
-            _offset.value = centroid - (centroid - _offset.value) * scaleRatio + panDelta
+            _offset.value = centroid - (centroid - panDelta - _offset.value) * scaleRatio
             logScale = newLog
             syncScaleFromLog()
         } else {
@@ -99,7 +117,7 @@ class ZoomState {
         canvasPoint * scale + _offset.value
 
     fun reset() {
-        logScale = 0f
+        logScale = clampLogScale(0f)
         syncScaleFromLog()
         _offset.value = Offset.Zero
     }
@@ -119,15 +137,17 @@ class ZoomState {
     }
 
     /**
-     * Keeps the world point at the viewport center fixed when the screen size changes
+     * Keeps the world point at the top center fixed when the screen width changes
      * (rotation, fold, split-screen).
      */
     fun updateViewportSize(width: Float, height: Float) {
         if (width <= 0f || height <= 0f) return
 
-        if (viewportWidth > 0f && viewportHeight > 0f) {
-            val oldCenter = Offset(viewportWidth / 2f, viewportHeight / 2f)
-            val newCenter = Offset(width / 2f, height / 2f)
+        // Keyboard, tool panels and the writing pad change only the height. Keep
+        // the top of the document anchored so its fields do not leave the screen.
+        if (viewportWidth > 0f && viewportHeight > 0f && width != viewportWidth) {
+            val oldCenter = Offset(viewportWidth / 2f, 0f)
+            val newCenter = Offset(width / 2f, 0f)
             val worldAtCenter = screenToCanvas(oldCenter)
             _offset.value = newCenter - worldAtCenter * scale
         }
@@ -147,8 +167,8 @@ class ZoomState {
         "ZoomState(scale=$scale, offset=$offset, isTransformMode=$isTransformMode)"
 
     companion object {
-        const val MIN_SCALE = 0.001f
-        const val MAX_SCALE = 4096f
+        const val MIN_SCALE = 0.1f
+        const val MAX_SCALE = 8f
         private const val ZOOM_BUTTON_FACTOR = 1.18f
         private const val PINCH_SENSITIVITY = 1f
     }

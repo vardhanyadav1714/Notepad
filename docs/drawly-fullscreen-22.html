@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Drawly 2.2 — full screen and landscape review</title>
+<style>body{font:16px/1.65 system-ui,sans-serif;max-width:1120px;margin:auto;padding:32px 22px;background:#fcfcfc;color:#242424}h1{line-height:1.2}h2{margin-top:32px}a{color:#a84529}table{width:100%;border-collapse:collapse}td,th{padding:10px;text-align:left;border-bottom:1px solid #ddd}.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px}figure{margin:0 0 22px}img{max-width:100%;border:1px solid #ddd;border-radius:12px}figcaption{font-size:14px;color:#666}code{overflow-wrap:anywhere}aside{padding:18px;background:#f8e5de;border-radius:12px}</style>
+<h1>Drawly 2.2: full screen and landscape</h1>
+<p>Compared against the installed Samsung Notes app on the connected Galaxy S22 (SM-S901E), Android 16/API 36, using a newly created reference note. Existing user notes were not edited. The reference fixture was moved to Recycle bin afterwards.</p>
+<h2>Editor behaviour</h2>
+<table><tr><th>Mode</th><th>Status bar</th><th>Header and tools</th></tr>
+<tr><td>Normal portrait</td><td>Visible</td><td>Header visible; phone tools remain below the canvas.</td></tr>
+<tr><td>Normal landscape</td><td>Hidden</td><td>Header stays visible without the clock/status strip. More handwriting controls fit across the available width.</td></tr>
+<tr><td>Full-screen editing</td><td>Hidden</td><td>Header and tablet sidebar hidden; handwriting or text controls remain at the bottom. A small neutral exit control stays available.</td></tr>
+<tr><td>Leaving full screen</td><td>Restored in portrait</td><td>Exit or Back restores the normal editor before leaving the note. Leaving the editor restores normal app status-bar visibility.</td></tr></table>
+<p>Full screen survives rotation and keeps drawing, undo/redo, text entry and page access working. The tablet sorter returns on exit if it was previously open. Camera cutouts and navigation insets are protected. The zoom indicator appears below the exit control, and the system can reveal the status bar with an edge swipe. Reading mode remains a separate mode.</p>
+<p>The accepted neutral light/dark colours, updated icon, cached stroke geometry, thumbnail caching and existing collaboration behaviour are retained.</p>
+<h2>Samsung reference and Drawly</h2>
+<figure><img src="ui/samsung-reference-landscape.png" alt="Samsung Notes in normal landscape"><figcaption>Samsung Notes: normal landscape hides the status strip and retains the editor header and bottom tools.</figcaption></figure>
+<figure><img src="ui/drawly-22-normal-landscape.png" alt="Drawly normal landscape on the Samsung phone"><figcaption>Drawly: normal landscape with the same status-bar policy and its existing tools.</figcaption></figure>
+<figure><img src="ui/samsung-reference-fullscreen-landscape.png" alt="Samsung Notes full screen in landscape"><figcaption>Samsung Notes: full screen keeps the bottom tools and a small exit control.</figcaption></figure>
+<figure><img src="ui/drawly-22-full-screen-landscape.png" alt="Drawly full screen in landscape on the Samsung phone"><figcaption>Drawly: full-screen editing with the bottom toolbar, exit control and separate zoom indicator.</figcaption></figure>
+<div class="screens"><figure><img src="ui/drawly-22-normal-portrait.png" alt="Drawly normal portrait"><figcaption>Normal portrait</figcaption></figure><figure><img src="ui/drawly-22-full-screen-portrait.png" alt="Drawly full screen in portrait"><figcaption>Full-screen portrait</figcaption></figure></div>
+<figure><img src="ui/drawly-22-tablet-full-screen-landscape.png" alt="Drawly tablet full screen with bottom tools"><figcaption>Tablet review on the dedicated emulator: full screen moves handwriting tools below the canvas and hides the sorter. Pages remains accessible through the bottom toolbar.</figcaption></figure>
+<h2>Validation</h2>
+<ul><li>26 JVM tests and the full 62-test Android suite passed on the dedicated 16 KB emulator.</li>
+<li>28 focused tests passed on the physical Samsung phone, covering gestures, ink visibility, pages, saving, themes, landscape controls and local TLS/WebSocket collaboration.</li>
+<li>The final full-screen flow passed on both phone and tablet, including display rotation, text/handwriting switching, drawing, undo/redo, Back, status visibility, toolbar bounds and persistence. Phone rotation/night settings match their recorded initial values.</li>
+<li>Seven release-variant workflows passed on a separate QA copy signed with the debug key. The production APK and bundle retain the existing drawly.jks signature.</li>
+<li>The system-theme check now exercises six repeated text/handwriting mode switches before toggling themes. The earlier intermittent timeout did not recur in the full suite or focused phone/release checks; this is regression evidence rather than proof of its original cause.</li>
+<li>Lint and release vital lint passed: 0 errors, 83 warnings and 3 informational findings. The collaboration worker passes strict TypeScript checking with <code>npm run typecheck</code>.</li></ul>
+<p>Android 16 ignores app-requested orientation on large screens. The final full-screen test rotates the display through the system, as a user would, and restores its original rotation settings. Captures wait for window events to settle rather than recording the rotation animation.</p>
+<p>Logs: <code>build-fullscreen-all-tests.log</code>, <code>build-fullscreen-samsung-tests.log</code>, <code>build-fullscreen-phone-rotation.log</code>, <code>build-fullscreen-tablet-final.log</code>, <code>build-fullscreen-release-tests.log</code>, <code>build-fullscreen-final.log</code> and <code>build-fullscreen-checks-final.log</code>.</p>
+<h2>Signed files</h2>
+<p>Version 2.2, code 28, minimum API 24, target/compile API 36. The production APK is non-debuggable. APK and AAB signature verification passed. The APK ZIP alignment and all required 64-bit native ELF LOAD alignments pass at 16 KB; see <a href="native-alignment-22.json">alignment evidence</a> and <a href="artifact-hashes-22.json">SHA-256 hashes</a>.</p>
+<p>Update the existing Notes Preview with:<br><code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\device-preview\notes-preview.apk</code></p>
+<p>Signed production APK:<br><code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\release\app-release.apk</code></p>
+<p>Signed Google Play bundle:<br><code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\bundle\release\app-release.aab</code></p>
+<p>Production certificate SHA-256: <code>B9:42:A3:F9:A6:7F:8B:A6:F2:B2:AD:1D:FC:12:08:32:EF:5D:4E:CF:5A:AF:67:87:7D:0E:BD:33:EA:8E:A7:81</code>. Credentials were consumed from the ignored local signing configuration, never copied into the app or report. Release builds now fail if signing credentials are absent or the Preview application ID is selected.</p>
+<h2>Before public rollout</h2>
+<aside>The signed build is prepared for Play internal testing, not a claim that every production condition has been verified. Confirm the upload certificate and version code in Play Console, complete the applicable listing/privacy declarations and review the Play pre-launch report.</aside>
+<p>The live app-link association currently trusts the two earlier certificates, not the new direct-APK certificate above. The worker source now adds this certificate while retaining both live certificates; that source update has not been deployed. Verify Google's Play app-signing certificate separately, since Google may sign delivered APKs with a different key. Existing clients and live rooms were not changed during this review.</p>
+<p>The installed original 1.4 package was left intact. Notes Preview was updated without clearing its data. A direct production APK can update an existing installation only when their signing certificates match; do not uninstall an existing notes app to work around a signature mismatch.</p>
+<p>The S22 has no S Pen digitizer. Injected pressure/palm tests cover the input pipeline, not physical S Pen latency. Microphone hardware, downloaded recognition models, biometric prompts, every Android/OEM version and a universal frame-rate guarantee are outside this review. Collaboration still synchronizes ink/canvas state; text, images, PDFs and audio are not synchronized, and whole-canvas conflicts retain the existing last-writer behaviour.</p>
+</html>

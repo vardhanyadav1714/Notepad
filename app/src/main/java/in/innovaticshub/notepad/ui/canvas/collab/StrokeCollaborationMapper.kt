@@ -7,20 +7,25 @@ import `in`.innovaticshub.notepad.ui.canvas.model.StrokeBuilder
 import `in`.innovaticshub.notepad.ui.canvas.model.StrokePoint
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolConfig
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
+import `in`.innovaticshub.notepad.ui.canvas.storage.ToolConfigJson
+import org.json.JSONObject
 
 fun Stroke.toRemoteStroke(userId: String): RemoteStroke {
     return RemoteStroke(
-        id = "${userId}_$id",
+        // Stroke IDs are UUIDs already. Keep received legacy IDs too; repeatedly prefixing
+        // them on canvas updates breaks deduplication and per-participant undo history.
+        id = id,
         userId = userId,
         points = points.map {
             RemoteStrokePoint(
                 x = it.x.toDouble(),
                 y = it.y.toDouble(),
-                pressure = it.pressure.toDouble()
+                pressure = it.pressure.toDouble(),
+                timestamp=it.timestamp,tilt=it.tilt.toDouble(),orientation=it.orientation.toDouble()
             )
         },
         toolConfig = toolConfig.toRemoteToolConfig(),
-        createdAt = System.currentTimeMillis()
+        createdAt = System.currentTimeMillis(),pageId=pageId
     )
 }
 
@@ -32,11 +37,11 @@ fun RemoteStroke.toLocalStroke(): Stroke {
             StrokePoint(
                 x = it.x.toFloat(),
                 y = it.y.toFloat(),
-                pressure = it.pressure.toFloat()
+                pressure = it.pressure.toFloat(),timestamp=it.timestamp,tilt=it.tilt.toFloat(),orientation=it.orientation.toFloat()
             )
         )
     }
-    return builder.build().copy(id = id)
+    return builder.build().copy(id = id,pageId=pageId)
 }
 
 private fun ToolConfig.toRemoteToolConfig(): RemoteToolConfig {
@@ -46,11 +51,12 @@ private fun ToolConfig.toRemoteToolConfig(): RemoteToolConfig {
         colorArgb = color.toArgbLong(),
         baseWidth = baseWidth.toDouble(),
         opacity = opacity.toDouble(),
-        usePressure = usePressure
+        usePressure = usePressure,settingsJson=ToolConfigJson.encode(this).toString()
     )
 }
 
 private fun RemoteToolConfig.toLocalToolConfig(): ToolConfig {
+    settingsJson?.let { json -> runCatching { ToolConfigJson.decode(JSONObject(json)) }.getOrNull()?.let {return it} }
     return ToolConfig(
         type = enumValueOrDefault(type, ToolType.PEN),
         style = enumValueOrDefault(style, DrawingStyle.SOLID),

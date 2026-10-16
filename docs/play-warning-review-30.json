@@ -1,0 +1,53 @@
+{
+  "version_name": "2.4",
+  "version_code": 30,
+  "app_name": "Drawly",
+  "old_aab_bytes": 27091540,
+  "new_aab_bytes": 19402026,
+  "microphone_required": false,
+  "embedded_mapping": "BUNDLE-METADATA/com.android.tools.build.obfuscation/proguard.map",
+  "native_debug_symbols_available": false,
+  "release_ui_checks": [
+    {
+      "check": "Optimized app launches, creates a note, draws, and supports undo/redo",
+      "passed": true
+    },
+    {
+      "check": "Adds a second page and writes on it",
+      "passed": true
+    },
+    {
+      "check": "Handwriting recognition sheet and language controls load",
+      "passed": true
+    },
+    {
+      "check": "Full screen and Back restore editor controls",
+      "passed": true
+    },
+    {
+      "check": "Live collaboration connects and reconnects after reopening",
+      "passed": true
+    },
+    {
+      "check": "Saved and reopened document preserves two unique strokes on separate pages",
+      "passed": true
+    }
+  ],
+  "jvm_tests": 26,
+  "lint_errors": 0,
+  "lint_warnings": 77,
+  "signature_verified": true,
+  "native_16kb_alignment_verified": true,
+  "remaining_actions": [
+    "Configure testers and share opt-in link in Play Console.",
+    "Replace code 29 in the draft with code 30; review recalculated download size and device exclusions.",
+    "Native-symbol warning may remain: bundled third-party libraries have already been stripped of debug information."
+  ],
+  "device_coverage_note": "Removing the microphone requirement is verified. The exact reason for all 20 exclusions still requires the Play Device Catalog.",
+  "test_environment": "R8-optimized release APK, separately debug-resigned for QA, installed on the isolated 16 KB emulator; actual production APK/AAB signatures separately verified.",
+  "sources": [
+    "https://support.google.com/googleplay/android-developer/answer/9845334",
+    "https://developer.android.com/guide/topics/manifest/uses-feature-element",
+    "https://developer.android.com/build/include-native-symbols"
+  ]
+}

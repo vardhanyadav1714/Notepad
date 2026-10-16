@@ -1,0 +1,16 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notes 1.7 — writing visibility fix</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:1050px;margin:auto;padding:32px 20px;background:#fafafa;color:#242424}.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:24px}figure{margin:0}img{width:100%;border:1px solid #ddd}code{overflow-wrap:anywhere}</style>
+<h1>Notes 1.7: visible writing restored</h1>
+<p>The connected Galaxy Tab had finger drawing disabled by the 1.6 S Pen default. Finger strokes therefore moved the viewport instead of creating ink. The active brush's colour and opacity were valid; the missing strokes were an input-mode problem.</p>
+<p>Version 1.7 (23) restores finger writing as the default on all devices. Explicit saved choices remain respected. The tablet toolbar now labels the finger-mode control <strong>Write</strong> or <strong>Scroll</strong>. Writing was enabled on the connected tablet, and Notes Preview was updated without clearing its data. Two-finger navigation, pinch cancellation, page creation, momentum and collaboration remain available.</p>
+<h2>Verification</h2>
+<p>Actual finger swipes on the tablet created two neutral strokes and a third red stroke (#FF3333). The neutral strokes are light on dark paper and dark on light paper; red remains red. All three strokes remained visible after saving and reopening. Only a new review note was used for these drawing checks. The tablet's original dark mode was restored.</p>
+<div class="screens"><figure><img src="ui/ink-17-dark.png" alt="Three visible strokes and the Write control in dark mode"><figcaption>Updated app after reopening in dark mode</figcaption></figure><figure><img src="ui/ink-17-light.png" alt="The same three visible strokes on light paper"><figcaption>Same note in system light mode</figcaption></figure></div>
+<p>83 tests passed: 26 JVM and 57 Android tests, including collaboration and the new live-input pixel regression. The new test loads fresh preferences, draws a finger stroke, checks its pixels in dark mode, reloads it in light mode, and checks a chosen red stroke in both themes. Build and lint passed; lint reports 0 errors and 77 warnings.</p>
+<p>Logs: <code>build-ui-ink-17.log</code>, <code>build-ui-ink-all-tests.log</code>, <code>build-ui-ink-physical.log</code>, <code>build-ui-ink-colour-physical.log</code>.</p>
+<p>Installed APK: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\device-preview\notes-preview.apk</code><br>SHA256: <code>7FADB7DEC8D3B2E8BECD74B467E8187239C91084D3AC1CFD982711CE4DE6F6EF</code></p>
+<p>Normal package APK: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\debug\app-debug.apk</code><br>SHA256: <code>6DC547B55D2BC26BA234B5AFF51A5540A30436F4254615BA6CBCB972A44D17B3</code></p>
+<p>The original tablet app retains its data and separate signing certificate. The installed update is named <strong>Notes Preview</strong>.</p>
+</html>

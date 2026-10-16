@@ -381,12 +381,12 @@ private fun MarkupDock(
     Surface(
         modifier = modifier.padding(if (isVertical) 0.dp else 4.dp),
         shape = RoundedCornerShape(24.dp),
-        color = if (isDarkCanvas) Color(0xF21C1C1E) else Color(0xFFFBFBFD).copy(alpha = 0.97f),
+        color = if (isDarkCanvas) Color(0xF21C2520) else Color(0xFFFFFEFA).copy(alpha = 0.97f),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             if (isDarkCanvas) Color(0x26FFFFFF) else Color(0x18000000)
         ),
-        shadowElevation = 12.dp,
+        shadowElevation = 6.dp,
         tonalElevation = 0.dp
     ) {
         if (isVertical) {
@@ -607,7 +607,7 @@ private fun LassoTransformControls(
 ) {
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xFFEAF3FF),
+        color = Color(0xFFD9EBE2),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
     ) {
         Row(
@@ -617,7 +617,7 @@ private fun LassoTransformControls(
         ) {
             Text(
                 text = "$selectedCount",
-                color = Color(0xFF0057B8),
+                color = Color(0xFF176B5B),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
@@ -641,7 +641,7 @@ private fun VerticalLassoTransformControls(
 ) {
     Surface(
         shape = RoundedCornerShape(18.dp),
-        color = Color(0xFFEAF3FF),
+        color = Color(0xFFD9EBE2),
         border = androidx.compose.foundation.BorderStroke(1.dp, Color(0x33007AFF))
     ) {
         Column(
@@ -651,7 +651,7 @@ private fun VerticalLassoTransformControls(
         ) {
             Text(
                 text = "$selectedCount",
-                color = Color(0xFF0057B8),
+                color = Color(0xFF176B5B),
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.padding(horizontal = 4.dp)
             )
@@ -1226,7 +1226,7 @@ private fun MarkupToolButton(
         modifier = Modifier.size(width = 29.dp, height = 46.dp),
         shape = RoundedCornerShape(10.dp),
         color = if (selected) {
-            if (isDark) Color(0xFF123A66) else Color(0xFFEAF3FF)
+            if (isDark) Color(0xFF244D40) else Color(0xFFD9EBE2)
         } else {
             Color.Transparent
         },
@@ -1348,7 +1348,7 @@ private fun ColorWheelButton(
         modifier = Modifier.size(36.dp),
         shape = CircleShape,
         color = if (selected) {
-            if (isDark) Color(0xFF123A66) else Color(0xFFEAF3FF)
+            if (isDark) Color(0xFF244D40) else Color(0xFFD9EBE2)
         } else {
             Color.Transparent
         },
@@ -1448,7 +1448,7 @@ private fun InputModeButton(
                 .fillMaxSize()
                 .padding(7.dp)
         ) {
-            val ink = if (panMode) Color(0xFF0A84FF) else if (isDark) Color.White else Color(0xFF111827)
+            val ink = if (panMode) Color(0xFF176B5B) else if (isDark) Color.White else Color(0xFF242C29)
             val w = size.width
             val h = size.height
             if (panMode) {
@@ -1535,7 +1535,7 @@ private fun DockIcon(
             modifier = Modifier.size(17.dp),
             tint = when {
                 !enabled -> if (isDark) Color(0x55FFFFFF) else Color(0x55111827)
-                selected -> Color(0xFF0A84FF)
+                selected -> Color(0xFF176B5B)
                 isDark -> Color.White
                 else -> Color(0xFF111827)
             }

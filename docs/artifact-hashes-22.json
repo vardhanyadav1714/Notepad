@@ -1,0 +1,14 @@
+[
+    {
+        "Path":  "C:\\Users\\vardh\\AndroidStudioProjects\\Notepad\\app\\build\\outputs\\apk\\release\\app-release.apk",
+        "Hash":  "5775BADF0D63CF7A7CAA1342C9EEBE19B626E28E45708B878C4F1224F9DC1D8B"
+    },
+    {
+        "Path":  "C:\\Users\\vardh\\AndroidStudioProjects\\Notepad\\app\\build\\outputs\\bundle\\release\\app-release.aab",
+        "Hash":  "3C6D66D236D639A3612C1957704AC7B4468352674AEE41D3BB98618EFC833188"
+    },
+    {
+        "Path":  "C:\\Users\\vardh\\AndroidStudioProjects\\Notepad\\app\\build\\outputs\\apk\\device-preview\\notes-preview.apk",
+        "Hash":  "2B41D1E150EEEEBA459C1A131BC60FD4AFA3DB2B014DCEFA81D5BC7C2F167DCE"
+    }
+]

@@ -3,267 +3,363 @@ package `in`.innovaticshub.notepad.ui.canvas.drawing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.geometry.*
+import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.Stroke as ComposeStroke
 import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.input.pointer.PointerType
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.input.pointer.*
+import androidx.compose.ui.input.pointer.util.VelocityTracker
 import androidx.compose.ui.layout.onSizeChanged
-import `in`.innovaticshub.notepad.ui.canvas.model.RectF
-import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
-import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import androidx.compose.animation.core.animate
+import androidx.compose.animation.core.tween
+import `in`.innovaticshub.notepad.media.PdfPageImages
+import `in`.innovaticshub.notepad.ui.canvas.model.*
 import `in`.innovaticshub.notepad.ui.canvas.viewmodel.DrawingViewModel
 import `in`.innovaticshub.notepad.ui.canvas.zoom.ZoomState
 import kotlin.math.ceil
 import kotlin.math.floor
+import `in`.innovaticshub.notepad.ui.theme.LocalNoteAppearance
+import `in`.innovaticshub.notepad.ui.canvas.zoom.PageEndPull
+import `in`.innovaticshub.notepad.ui.canvas.zoom.NavigationIntent
 
-private enum class SelectionDragMode {
-    Move,
-    Scale
-}
+private enum class SelectionDragMode { Move, Scale }
+private data class SelectionHandle(val center:Offset,val pivot:Offset)
 
-private data class SelectionHandle(
-    val center: Offset,
-    val pivot: Offset
-)
-
-/**
- * Infinite canvas: 1 finger / stylus = draw, 2+ fingers = pinch-zoom + pan.
- */
+/** One gesture owner covers the page AND editable overlays. A multitouch sequence never commits ink. */
+@OptIn(ExperimentalComposeUiApi::class)
 @Composable
-fun ZoomableCanvas(
-    viewModel: DrawingViewModel,
-    modifier: Modifier = Modifier,
-    backgroundColor: Color = Color.White,
-    zoomState: ZoomState,
-    isPanMode: Boolean = false,
-    onZoomChanged: () -> Unit = {},
-    onDoubleTap: (() -> Unit)? = null
-) {
+fun ZoomableCanvas(viewModel:DrawingViewModel,modifier:Modifier=Modifier,backgroundColor:Color=Color.White,
+    zoomState:ZoomState,isPanMode:Boolean=false,onZoomChanged:()->Unit={},onDoubleTap:(()->Unit)?=null,
+    pdfBackground:ImageBitmap?=null,colourPicking:Boolean=false,onPickColour:((Offset)->Unit)?=null,
+    isTextMode:Boolean=false,onDocumentTap:((Offset)->Unit)?=null,showDocumentTitle:Boolean=true,onStrokeFinished:(Stroke)->Unit={},
+    continuousPages:Boolean=false,blockInkAt:((Offset)->Boolean)?=null,onAppendPage:(()->Unit)?=null,overlay:@Composable BoxScope.()->Unit={}) {
     val uiState by viewModel.uiState.collectAsState()
-    var currentStroke by remember { mutableStateOf<Stroke?>(null) }
-    var eraserPreview by remember { mutableStateOf<Offset?>(null) }
-    val selectedBounds = remember(uiState.strokes, uiState.selectedStrokeIds) {
-        computeSelectedBounds(uiState.strokes, uiState.selectedStrokeIds)
-    }
-
-    Canvas(
-        modifier = modifier
-            .fillMaxSize()
-            .onSizeChanged { size ->
-                zoomState.updateViewportSize(size.width.toFloat(), size.height.toFloat())
-            }
-            .pointerInput(zoomState, uiState.currentTool, uiState.selectedStrokeIds, isPanMode) {
-                awaitEachGesture {
-                    val gestureSelectedBounds = computeSelectedBounds(
-                        uiState.strokes,
-                        uiState.selectedStrokeIds
-                    )
-                    val firstDown = awaitFirstDown(requireUnconsumed = false)
-                    val isStylus = firstDown.type == PointerType.Stylus ||
-                        firstDown.type == PointerType.Eraser
-                    val firstCanvasPoint = zoomState.screenToCanvas(firstDown.position)
-                    var isMultiTouch = false
-                    var dragStarted = false
-                    var selectionDragMode: SelectionDragMode? = null
-                    var lastSelectionPoint = firstCanvasPoint
-                    var selectionPivot = Offset.Zero
-                    var initialPinchDistance = 0f
-                    var lastPinchCenter = Offset.Zero
-
-                    if (!isPanMode && uiState.currentTool.type == ToolType.LASSO && gestureSelectedBounds != null) {
-                        val handleRadius = (34f / zoomState.scale).coerceIn(16f, 70f)
-                        val resizeHandle = gestureSelectedBounds.selectionHandles(zoomState.scale)
-                            .minByOrNull { (it.center - firstCanvasPoint).getDistance() }
-                            ?.takeIf { (it.center - firstCanvasPoint).getDistance() <= handleRadius }
-                        val insideSelection = gestureSelectedBounds
-                            .expanded((34f / zoomState.scale).coerceIn(14f, 80f))
-                            .contains(firstCanvasPoint)
-
-                        if (resizeHandle != null || insideSelection) {
-                            selectionDragMode = if (resizeHandle != null) SelectionDragMode.Scale else SelectionDragMode.Move
-                            selectionPivot = resizeHandle?.pivot ?: gestureSelectedBounds.center
-                            lastSelectionPoint = firstCanvasPoint
-                            viewModel.beginSelectionTransform()
-                            firstDown.consume()
+    val appearance=LocalNoteAppearance.current
+    var currentStroke by remember {mutableStateOf<Stroke?>(null)}
+    var eraserPreview by remember {mutableStateOf<Offset?>(null)}
+    var eraserWidth by remember {mutableFloatStateOf(20f)}
+    var appendPreview by remember {mutableStateOf(false)}
+    val motionScope=rememberCoroutineScope()
+    var motionJob by remember {mutableStateOf<Job?>(null)}
+    val hardware=remember {HardwareInkSamples()}
+    val latestPan by rememberUpdatedState(isPanMode)
+    val latestText by rememberUpdatedState(isTextMode)
+    val latestPicking by rememberUpdatedState(colourPicking)
+    val latestPick by rememberUpdatedState(onPickColour)
+    val latestTap by rememberUpdatedState(onDocumentTap)
+    val latestZoom by rememberUpdatedState(onZoomChanged)
+    val latestFinished by rememberUpdatedState(onStrokeFinished)
+    val latestBlock by rememberUpdatedState(blockInkAt)
+    val latestAppend by rememberUpdatedState(onAppendPage)
+    val pageList=if(continuousPages) uiState.pages else listOf(uiState.currentPage)
+    val layout=remember(pageList) {PageStackLayout(pageList)}
+    val latestLayout by rememberUpdatedState(layout)
+    val visiblePages by remember(layout,zoomState) {derivedStateOf {
+        val top=zoomState.screenToCanvas(Offset.Zero).y
+        val bottom=zoomState.screenToCanvas(Offset(0f,zoomState.viewportHeight)).y
+        val intersect=layout.pages.indices.filter {i->val f=layout.frames.getValue(layout.pages[i].id);f.bottom>=top && f.top<=bottom}
+        if(intersect.isEmpty()) listOfNotNull(layout.nearestPage(top))
+        else layout.pages.subList((intersect.first()-1).coerceAtLeast(0),(intersect.last()+2).coerceAtMost(layout.pages.size))
+    } }
+    Box(modifier.fillMaxSize().clipToBounds().testTag("ink-canvas")
+        .onSizeChanged {zoomState.updateViewportSize(it.width.toFloat(),it.height.toFloat())}
+        .motionEventSpy(hardware::observe)
+        .pointerInput(viewModel,zoomState,continuousPages) {
+            awaitEachGesture {
+                val first=awaitFirstDown(requireUnconsumed=false)
+                motionJob?.cancel()
+                val initial=viewModel.uiState.value
+                var pen=first.type==PointerType.Stylus || first.type==PointerType.Eraser
+                var penFinished=false
+                var navigation=hardware.multiTouchGesture && !pen
+                var started=false
+                var blocked=false
+                var selectionMode:SelectionDragMode?=null
+                var pivot=Offset.Zero
+                var pageId=initial.currentPageId
+                var pageOrigin=latestLayout.origin(pageId)
+                var last=first.position
+                var lastLocal=zoomState.screenToCanvas(first.position)-pageOrigin
+                var moved=0f
+                var distance=0f
+                var pinchStartDistance=0f
+                var centroid=Offset.Zero
+                var contactIds:Set<PointerId> = emptySet()
+                var intent=NavigationIntent(viewConfiguration.touchSlop)
+                var pinched=false
+                val velocity=VelocityTracker()
+                var trackedPosition=Offset.Zero
+                var lastPanTime=first.uptimeMillis
+                var lastEventTime=first.uptimeMillis
+                var panned=false
+                velocity.addPosition(first.uptimeMillis,trackedPosition)
+                fun trackPan(delta:Offset,time:Long) {
+                    trackedPosition+=delta;velocity.addPosition(time,trackedPosition)
+                    if(delta!=Offset.Zero) {lastPanTime=time;panned=true}
+                }
+                val pullThreshold=40.dp.toPx()
+                val endPull=PageEndPull(pullThreshold,zoomState.scale)
+                var appended=false
+                var navigationLayout=latestLayout
+                fun boundNavigation(panY:Float,previousBottom:Float,zoomAttempt:Boolean=false) {
+                    if(!continuousPages) return
+                    if(latestAppend!=null) endPull.update(panY,previousBottom,zoomState.viewportHeight,zoomState.scale,zoomAttempt)
+                    val nextPreview=latestAppend!=null && endPull.pullDistance>0f
+                    appendPreview=nextPreview
+                    val pages=viewModel.uiState.value.pages
+                    if(pages!==navigationLayout.pages) navigationLayout=PageStackLayout(pages)
+                    val extra=if(appendPreview) navigationLayout.pages.last().height+navigationLayout.gap else 0f
+                    zoomState.constrainDocument(navigationLayout.width,navigationLayout.height+extra,0f,0f)
+                }
+                var tool=initial.currentTool
+                val overlayHandled=first.isConsumed || latestBlock?.invoke(zoomState.screenToCanvas(first.position))==true
+                fun cancel() {
+                    if(started) viewModel.cancelStroke()
+                    if(selectionMode!=null) viewModel.cancelSelectionTransform()
+                    started=false;selectionMode=null;currentStroke=null;eraserPreview=null
+                }
+                fun locate(position:Offset):Offset? {
+                    val world=zoomState.screenToCanvas(position)
+                    val page=latestLayout.pageAt(world) ?: return null
+                    pageId=page.id;pageOrigin=latestLayout.origin(page.id)
+                    viewModel.activatePage(page.id)
+                    return world-pageOrigin
+                }
+                fun begin(position:Offset,pressure:Float,time:Long,eraser:Boolean=false) {
+                    val point=locate(position) ?: return
+                    tool=if(eraser) ToolConfig.MEDIUM_ERASER.copy(eraserMode=initial.currentTool.eraserMode) else initial.currentTool
+                    val bounds=viewModel.uiState.value.selectionBounds()
+                    lastLocal=point
+                    if(tool.type==ToolType.LASSO && bounds!=null) {
+                        val radius=28f/zoomState.scale
+                        val handle=bounds.selectionHandles(zoomState.scale).minByOrNull {(it.center-point).getDistance()}?.takeIf {(it.center-point).getDistance()<=radius}
+                        if(handle!=null || bounds.expanded(12f/zoomState.scale).contains(point)) {
+                            selectionMode=if(handle!=null) SelectionDragMode.Scale else SelectionDragMode.Move
+                            pivot=handle?.pivot ?: bounds.center;viewModel.beginSelectionTransform();return
                         }
                     }
-
+                    val raw=if(pen) hardware.samples.lastOrNull() else null
+                    viewModel.startStroke(point.x,point.y,pressure,minPointDistance=(0.6f/zoomState.scale).coerceIn(0.05f,1.5f),
+                        toolOverride=tool,timestamp=time,tilt=raw?.tilt ?: 0f,orientation=raw?.orientation ?: 0f)
+                    started=true
+                    currentStroke=viewModel.addStrokePoint(point.x,point.y,pressure,time,raw?.tilt ?: 0f,raw?.orientation ?: 0f)
+                    eraserWidth=tool.strokeWidth()
+                }
+                fun finishStroke() {
+                    if(started) {val finished=currentStroke;viewModel.endStroke();finished?.let(latestFinished)}
+                    started=false;currentStroke=null;eraserPreview=null
+                }
+                if(latestPicking) {
+                    locate(first.position)?.let {latestPick?.invoke(it)}
+                    do {val e=awaitPointerEvent();e.changes.forEach {it.consume()}} while(e.changes.any {it.pressed})
+                    return@awaitEachGesture
+                }
+                if(!navigation && !latestText && !latestPan && !overlayHandled && (pen || (initial.fingerDrawing && !hardware.stylusNearby)))
+                    begin(first.position,if(pen) first.pressure else 1f,first.uptimeMillis,first.type==PointerType.Eraser || (pen && hardware.barrelPressed))
+                try {
                     do {
-                        val event = awaitPointerEvent()
-                        val pressed = event.changes.filter { it.pressed }
-                        val pointerCount = pressed.size
-
-                        if (pointerCount >= 2) {
-                            if (dragStarted) {
-                                viewModel.cancelStroke()
-                                currentStroke = null
-                                eraserPreview = null
-                                dragStarted = false
+                        val event=awaitPointerEvent()
+                        lastEventTime=event.changes.maxOf {it.uptimeMillis}
+                        val pressed=event.changes.filter {it.pressed}
+                        val stylus=event.changes.firstOrNull {(it.type==PointerType.Stylus || it.type==PointerType.Eraser) && (it.pressed || it.previousPressed)}
+                        if(hardware.cancelled) {cancel();blocked=true}
+                        if(viewModel.uiState.value.currentPageId!=pageId && (started || selectionMode!=null)) {cancel();blocked=true}
+                        if(stylus!=null && !penFinished && !blocked) {
+                            if(!pen) {
+                                cancel();pen=true;navigation=false
+                                if(!latestText && !latestPan) begin(stylus.position,stylus.pressure,stylus.uptimeMillis,stylus.type==PointerType.Eraser || hardware.barrelPressed)
                             }
-                            if (selectionDragMode != null) {
-                                viewModel.endSelectionTransform()
-                                selectionDragMode = null
+                            val point=zoomState.screenToCanvas(stylus.position)-pageOrigin
+                            if(selectionMode!=null) {
+                                if(selectionMode==SelectionDragMode.Move) {val delta=point-lastLocal;viewModel.moveSelectedStrokesBy(delta.x,delta.y)}
+                                else {val previous=(lastLocal-pivot).getDistance();if(previous>0.01f) viewModel.scaleSelectedStrokesBy((point-pivot).getDistance()/previous,pivot.x,pivot.y)}
+                                lastLocal=point
+                            } else if(latestPan) {zoomState.panBy(stylus.positionChange());latestZoom()}
+                            else if(started) {
+                                val samples=hardware.samples.ifEmpty {listOf(StrokePoint(stylus.position.x,stylus.position.y,stylus.pressure,stylus.uptimeMillis))}
+                                currentStroke=viewModel.addStrokePoints(samples.map {raw->val p=zoomState.screenToCanvas(Offset(raw.x,raw.y))-pageOrigin;raw.copy(x=p.x,y=p.y)})
+                                if(tool.isEraser) eraserPreview=stylus.position
                             }
-                            isMultiTouch = true
-                            val p1 = pressed[0]
-                            val p2 = pressed[1]
-                            val newDistance = (p1.position - p2.position).getDistance()
-                            val newCenter = (p1.position + p2.position) / 2f
-                            if (initialPinchDistance > 0f) {
-                                zoomState.transform(
-                                    newCenter,
-                                    newDistance / initialPinchDistance,
-                                    newCenter - lastPinchCenter
-                                )
-                                onZoomChanged()
-                            }
-                            initialPinchDistance = newDistance
-                            lastPinchCenter = newCenter
-                            pressed.forEach { it.consume() }
-                        } else if (pointerCount == 1 && !isMultiTouch) {
-                            val change = pressed.first()
-                            val pos = change.position
-                            val canvasPoint = zoomState.screenToCanvas(pos)
-
-                            if (isPanMode) {
-                                val delta = change.positionChange()
-                                if (delta != Offset.Zero) {
-                                    zoomState.panBy(delta)
-                                    onZoomChanged()
+                            event.changes.forEach {it.consume()}
+                            if(!stylus.pressed) {finishStroke();if(selectionMode!=null) viewModel.endSelectionTransform();selectionMode=null;penFinished=true}
+                        } else if(pen || penFinished || blocked) {
+                            event.changes.forEach {it.consume()}
+                        } else if(pressed.size>=2 || hardware.multiTouchGesture) {
+                            if(!navigation) {cancel();navigation=true}
+                            if(pressed.size>=2) {
+                                val a=pressed[0];val b=pressed[1]
+                                val d=(a.position-b.position).getDistance();val c=(a.position+b.position)/2f
+                                val ids=setOf(a.id,b.id)
+                                if(ids!=contactIds) {
+                                    pinchStartDistance=d;intent=NavigationIntent(viewConfiguration.touchSlop)
+                                    velocity.resetTracking();trackedPosition=Offset.Zero
+                                    velocity.addPosition(a.uptimeMillis,trackedPosition)
                                 }
+                                val previousBottom=navigationLayout.height*zoomState.scale+zoomState.offset.y
+                                if(ids==contactIds && distance>=8.dp.toPx() && d>=8.dp.toPx()) {
+                                    val wasZooming=intent.zooming
+                                    val zooming=intent.update(d-distance,(c-centroid).getDistance())
+                                    val factor=if(!zooming || viewModel.uiState.value.zoomLocked) 1f else d/(if(wasZooming) distance else pinchStartDistance)
+                                    pinched=pinched || zooming
+                                    zoomState.transform(c,factor,c-centroid)
+                                    trackPan(c-centroid,a.uptimeMillis)
+                                    boundNavigation((c-centroid).y,previousBottom,zooming)
+                                }
+                                distance=d;centroid=c;contactIds=ids
+                                latestZoom()
+                            } else if(pressed.size==1) {
+                                // Continue navigation when one finger lifts; never restart ink.
+                                val change=pressed.single();val delta=change.positionChange()
+                                val previousBottom=navigationLayout.height*zoomState.scale+zoomState.offset.y
+                                zoomState.panBy(delta);trackPan(delta,change.uptimeMillis)
+                                boundNavigation(delta.y,previousBottom,pinched);latestZoom()
+                                contactIds=emptySet()
+                            }
+                            event.changes.forEach {it.consume()}
+                        } else if(!navigation) {
+                            val change=event.changes.firstOrNull {it.id==first.id} ?: event.changes.first()
+                            val delta=change.position-last;last=change.position;moved+=delta.getDistance()
+                            if(selectionMode!=null) {
+                                val point=zoomState.screenToCanvas(change.position)-pageOrigin
+                                if(selectionMode==SelectionDragMode.Move) {val shift=point-lastLocal;viewModel.moveSelectedStrokesBy(shift.x,shift.y)}
+                                else {val previous=(lastLocal-pivot).getDistance();if(previous>0.01f) viewModel.scaleSelectedStrokesBy((point-pivot).getDistance()/previous,pivot.x,pivot.y)}
+                                lastLocal=point;change.consume()
+                            } else if(overlayHandled || change.isConsumed) {
+                                cancel()
+                            } else if(latestPan || !initial.fingerDrawing || hardware.stylusNearby || (latestText && moved>viewConfiguration.touchSlop)) {
+                                cancel()
+                                val previousBottom=navigationLayout.height*zoomState.scale+zoomState.offset.y
+                                zoomState.panBy(delta);boundNavigation(delta.y,previousBottom)
+                                trackPan(delta,change.uptimeMillis)
+                                latestZoom();change.consume()
+                            } else if(started) {
+                                val samples=change.historical.map {h->val p=zoomState.screenToCanvas(h.position)-pageOrigin;StrokePoint(p.x,p.y,1f,h.uptimeMillis)}
+                                val p=zoomState.screenToCanvas(change.position)-pageOrigin
+                                currentStroke=viewModel.addStrokePoints(samples+StrokePoint(p.x,p.y,1f,change.uptimeMillis))
+                                if(tool.isEraser) eraserPreview=change.position
                                 change.consume()
-                                continue
-                            }
-
-                            if (selectionDragMode != null) {
-                                change.consume()
-                                when (selectionDragMode) {
-                                    SelectionDragMode.Move -> {
-                                        val delta = canvasPoint - lastSelectionPoint
-                                        viewModel.moveSelectedStrokesBy(delta.x, delta.y)
-                                    }
-                                    SelectionDragMode.Scale -> {
-                                        val previousDistance = (lastSelectionPoint - selectionPivot).getDistance()
-                                        val nextDistance = (canvasPoint - selectionPivot).getDistance()
-                                        if (previousDistance > 0.001f && nextDistance > 0.001f) {
-                                            viewModel.scaleSelectedStrokesBy(
-                                                scale = nextDistance / previousDistance,
-                                                pivotX = selectionPivot.x,
-                                                pivotY = selectionPivot.y
-                                            )
-                                        }
-                                    }
-                                }
-                                lastSelectionPoint = canvasPoint
-                                continue
-                            }
-
-                            if (!dragStarted) {
-                                if (!isStylus && uiState.currentTool.type == ToolType.ERASER) {
-                                    // finger on eraser: skip until transform mode
-                                }
-                                viewModel.startStroke(
-                                    canvasPoint.x,
-                                    canvasPoint.y,
-                                    change.pressure.coerceIn(0.2f, 1f),
-                                    minPointDistance = (0.7f / zoomState.scale).coerceIn(0.04f, 2f)
-                                )
-                                dragStarted = true
-                            }
-                            change.consume()
-                            currentStroke = viewModel.addStrokePoint(
-                                canvasPoint.x,
-                                canvasPoint.y,
-                                change.pressure.coerceIn(0.2f, 1f)
-                            )
-                            if (uiState.currentTool.isEraser) {
-                                eraserPreview = pos
                             }
                         }
-                    } while (event.changes.any { it.pressed })
-
-                    if (dragStarted) {
-                        viewModel.endStroke()
-                        currentStroke = null
-                        eraserPreview = null
+                    } while(event.changes.any {it.pressed})
+                    if(navigation || hardware.cancelled) cancel()
+                    else {
+                        finishStroke()
+                        if(selectionMode!=null) {viewModel.endSelectionTransform();selectionMode=null}
+                        if(latestText && !overlayHandled && moved<=viewConfiguration.touchSlop) locate(last)?.let {latestTap?.invoke(it)}
                     }
-                    if (selectionDragMode != null) {
-                        viewModel.endSelectionTransform()
+                    // A page is committed only after lift. A late second finger can still turn
+                    // an end pull into a pinch without changing document history or collaboration.
+                    if(!hardware.cancelled && endPull.canCommit && latestAppend!=null) {latestAppend?.invoke();appended=true}
+                    if(continuousPages && !viewModel.uiState.value.hasSelection && viewModel.uiState.value.activeTextId==null && (navigation || latestPan || !initial.fingerDrawing)) {
+                        val finalLayout=if(appended) PageStackLayout(viewModel.uiState.value.pages) else latestLayout
+                        finalLayout.nearestPage(zoomState.screenToCanvas(Offset(0f,zoomState.viewportHeight*0.35f)).y)?.let {viewModel.activatePage(it.id)}
                     }
+                    if(continuousPages && panned && !pinched && !hardware.cancelled && (!appendPreview || appended) &&
+                        lastEventTime-lastPanTime<100L) {
+                        val speed=velocity.calculateVelocity()
+                        if(Offset(speed.x,speed.y).getDistance()>80.dp.toPx()) motionJob=motionScope.launch {
+                            var v=Offset(speed.x,speed.y)
+                            var previous=withFrameNanos {it}
+                            val startedAt=previous
+                            while(v.getDistance()>20.dp.toPx()) {
+                                val now=withFrameNanos {it}
+                                val dt=((now-previous)/1_000_000_000f).coerceAtMost(0.05f);previous=now
+                                val before=zoomState.offset
+                                val decay=kotlin.math.exp(-5f*dt)
+                                zoomState.panBy(v*((1f-decay)/5f))
+                                val bounds=latestLayout
+                                // Momentum may browse existing pages, but cannot create blank pages.
+                                zoomState.constrainDocument(bounds.width,bounds.height,0f,0f)
+                                val actual=zoomState.offset-before
+                                v=Offset(if(kotlin.math.abs(actual.x)<0.01f) 0f else v.x*decay,if(kotlin.math.abs(actual.y)<0.01f) 0f else v.y*decay)
+                                if(now-startedAt>2_000_000_000L) break
+                            }
+                        }
+                    }
+                } finally {
+                    if(viewModel.uiState.value.isDrawing) viewModel.cancelStroke()
+                    if(selectionMode!=null) viewModel.cancelSelectionTransform()
+                    if(appendPreview) {
+                        appendPreview=false
+                        if(!appended) {
+                            val from=zoomState.offset
+                            zoomState.constrainDocument(navigationLayout.width,navigationLayout.height,0f,0f)
+                            val target=zoomState.offset
+                            zoomState.setOffset(from)
+                            motionJob=motionScope.launch {animate(0f,1f,animationSpec=tween(180)) {fraction,_->zoomState.setOffset(from+(target-from)*fraction)}}
+                        }
+                    }
+                    currentStroke=null;eraserPreview=null
                 }
             }
-            .pointerInput(zoomState, onDoubleTap) {
-                detectTapGestures(
-                    onDoubleTap = {
-                        if (onDoubleTap != null) {
-                            onDoubleTap()
-                        } else {
-                            zoomState.toggleDoubleTapZoom()
-                            onZoomChanged()
-                        }
-                    }
-                )
-            }
-    ) {
-        drawRect(color = backgroundColor)
-
-        withTransform({
-            translate(zoomState.offset.x, zoomState.offset.y)
-            scale(zoomState.scale, zoomState.scale, pivot = Offset.Zero)
         }) {
-            if (uiState.showGrid) {
-                drawAdaptiveGrid(
-                    scale = zoomState.scale,
-                    offset = zoomState.offset,
-                    isDark = backgroundColor.luminance() < 0.35f
-                )
-            }
-
-            uiState.strokes.forEach { stroke ->
-                drawStroke(stroke, selected = stroke.id in uiState.selectedStrokeIds)
-            }
-            selectedBounds?.let { drawSelectionOverlay(it, zoomState.scale) }
-            currentStroke?.let { drawStroke(it) }
+        Canvas(Modifier.fillMaxSize()) {drawRect(appearance.surround)}
+        visiblePages.forEach {page->key(page.id) {
+            RecordedPageLayer(page,layout.origin(page.id),viewModel,zoomState,backgroundColor,
+                if(page.id==uiState.currentPageId) pdfBackground else null,
+                if(isTextMode) uiState.activeTextId else null,
+                if(showDocumentTitle && page.id==uiState.pages.first().id) uiState.documentTitle else null,
+                if(currentStroke?.pageId==page.id && currentStroke?.toolConfig?.isEraser==true) currentStroke else null)
+        } }
+        if(appendPreview) {
+            val lastPage=uiState.pages.last()
+            val preview=remember(lastPage) {lastPage.copy(id="preview-next-page",pdfPath=null,pdfPageIndex=0)}
+            RecordedPageLayer(preview,Offset((layout.width-preview.width)/2,layout.height+layout.gap),viewModel,zoomState,backgroundColor,null,null,null,null)
         }
+        Canvas(Modifier.fillMaxSize()) {
+            val active=currentStroke
+            val origin=layout.origin(active?.pageId ?: uiState.currentPageId)
+            withTransform({translate(zoomState.offset.x+origin.x*zoomState.scale,zoomState.offset.y+origin.y*zoomState.scale);scale(zoomState.scale,zoomState.scale,Offset.Zero)}) {
+                if(active!=null && !active.toolConfig.isEraser) renderStroke(active,darkPaper=isDarkPaper(uiState.currentPage,appearance.paper(backgroundColor)),inkColor=appearance.ink(active.toolConfig.color,uiState.currentPage.pdfPath!=null))
+            }
+            uiState.selectionBounds()?.let {bounds->val selectedOrigin=layout.origin(uiState.currentPageId)
+                withTransform({translate(zoomState.offset.x+selectedOrigin.x*zoomState.scale,zoomState.offset.y+selectedOrigin.y*zoomState.scale);scale(zoomState.scale,zoomState.scale,Offset.Zero)}) {drawSelectionOverlay(bounds,zoomState.scale)}
+            }
+            eraserPreview?.let {center->val radius=eraserWidth/2*zoomState.scale;drawCircle(Color.White.copy(alpha=0.4f),radius,center);drawCircle(Color(0xFF5D82C6),radius,center,style=ComposeStroke(1.5.dp.toPx()))}
+        }
+        overlay()
+    }
+}
 
-        eraserPreview?.let { center ->
-            val radius = uiState.currentTool.strokeWidth() / 2f * zoomState.scale
-            drawCircle(
-                color = Color(0xFF007AFF).copy(alpha = 0.14f),
-                radius = radius,
-                center = center
-            )
-            drawCircle(
-                color = Color.White.copy(alpha = 0.92f),
-                radius = radius,
-                center = center,
-                style = ComposeStroke(width = 3.5f)
-            )
-            drawCircle(
-                color = Color(0xFF007AFF).copy(alpha = 0.82f),
-                radius = radius,
-                center = center,
-                style = ComposeStroke(width = 2.2f)
-            )
-            drawCircle(
-                color = Color(0xFF007AFF),
-                radius = 3.5f,
-                center = center
-            )
+/** Static page commands are retained in a render layer. Pinch changes only its transform. */
+@Composable
+private fun RecordedPageLayer(page:CanvasPage,origin:Offset,model:DrawingViewModel,zoom:ZoomState,background:Color,pdf:ImageBitmap?,editing:String?,title:String?,eraser:Stroke?) {
+    val state by model.uiState.collectAsState()
+    val appearance=LocalNoteAppearance.current
+    val paper=appearance.paper(background,page.pdfPath!=null)
+    val context=LocalContext.current
+    val strokes=remember(state.strokes,page.id) {state.strokes.filter {it.pageId==page.id}}
+    val texts=remember(state.texts,page.id) {state.texts.filter {it.pageId==page.id}}
+    val images=remember(state.images,page.id) {state.images.filter {it.pageId==page.id}}
+    val displayTexts=remember(texts,appearance,page.pdfPath) {texts.map {appearance.text(it,page.pdfPath!=null)}}
+    var bitmaps by remember(page.id) {mutableStateOf<Map<String,ImageBitmap>>(emptyMap())}
+    var renderedPdf by remember(page.pdfPath,page.pdfPageIndex) {mutableStateOf<ImageBitmap?>(null)}
+    LaunchedEffect(images.map {it.path}) {bitmaps=withContext(Dispatchers.IO) {loadPageImageBitmaps(context,images)}}
+    LaunchedEffect(page.pdfPath,page.pdfPageIndex,pdf) {
+        renderedPdf=pdf ?: page.pdfPath?.let {path->withContext(Dispatchers.IO) {runCatching {PdfPageImages.render(context,path,page.pdfPageIndex).asImageBitmap()}.getOrNull()}}
+    }
+    Canvas(Modifier.fillMaxSize().graphicsLayer {
+        translationX=zoom.offset.x+origin.x*zoom.scale;translationY=zoom.offset.y+origin.y*zoom.scale
+        scaleX=zoom.scale;scaleY=zoom.scale;transformOrigin=TransformOrigin(0f,0f);clip=false
+    }) {
+        renderPaper(page,paper,state.paperStyle,renderedPdf)
+        clipRect(0f,0f,page.width,page.height) {
+            renderPageContent(displayTexts,images,bitmaps,editing,title,pageTextColor(paper))
+            val visible=if(eraser!=null) `in`.innovaticshub.notepad.ui.canvas.engine.StrokeEraser.erase(strokes,eraser) else strokes
+            visible.forEach {renderStroke(it,darkPaper=isDarkPaper(page,paper),inkColor=appearance.ink(it.toolConfig.color,page.pdfPath!=null))}
         }
     }
 }
@@ -398,82 +494,5 @@ private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawSelectionOverla
                 style = ComposeStroke(width = strokeWidth)
             )
         }
-    }
-}
-
-private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawStroke(
-    stroke: Stroke,
-    selected: Boolean = false
-) {
-    val tool = stroke.toolConfig
-    if (tool.isEraser) return
-
-    if (tool.type == ToolType.LASSO) {
-        drawPath(
-            path = stroke.path,
-            color = Color(0xFF007AFF),
-            style = ComposeStroke(
-                width = (2f / 1f).coerceAtLeast(1.5f),
-                cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 7f))
-            )
-        )
-        return
-    }
-
-    val style = ComposeStroke(
-        width = tool.strokeWidth(),
-        cap = androidx.compose.ui.graphics.StrokeCap.Round,
-        join = androidx.compose.ui.graphics.StrokeJoin.Round
-    )
-
-    when (tool.type) {
-        ToolType.MARKER, ToolType.HIGHLIGHTER -> {
-            drawPath(
-                path = stroke.path,
-                color = tool.effectiveColor(),
-                style = ComposeStroke(
-                    width = tool.strokeWidth(),
-                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
-                    pathEffect = PathEffect.cornerPathEffect(4f)
-                )
-            )
-        }
-        ToolType.PENCIL -> {
-            drawPath(
-                path = stroke.path,
-                color = tool.effectiveColor(),
-                style = ComposeStroke(
-                    width = tool.strokeWidth() * 0.85f,
-                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
-                    join = androidx.compose.ui.graphics.StrokeJoin.Round
-                )
-            )
-        }
-        else -> {
-            drawPath(
-                path = stroke.path,
-                color = tool.effectiveColor(),
-                style = style
-            )
-        }
-    }
-
-    if (selected) {
-        val bounds = stroke.bounds
-        drawRect(
-            color = Color(0xFF007AFF).copy(alpha = 0.18f),
-            topLeft = Offset(bounds.left - 8f, bounds.top - 8f),
-            size = Size(
-                width = (bounds.right - bounds.left + 16f).coerceAtLeast(12f),
-                height = (bounds.bottom - bounds.top + 16f).coerceAtLeast(12f)
-            ),
-            style = ComposeStroke(
-                width = 2f,
-                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
-            )
-        )
     }
 }

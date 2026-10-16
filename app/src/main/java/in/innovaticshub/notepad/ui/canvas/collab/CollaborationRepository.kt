@@ -19,19 +19,18 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
-class CollaborationRepository {
-    private val websocketBaseUrl = "wss://drawly.smartattendance.xyz/ws"
+class CollaborationRepository(
+    private val websocketBaseUrl:String="wss://drawly.smartattendance.xyz/ws",
+    private val client:WebSocket.Factory=OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+) {
     private val roomRandom = SecureRandom()
-    private val client = OkHttpClient.Builder()
-        .pingInterval(25, TimeUnit.SECONDS)
-        .retryOnConnectionFailure(true)
-        .build()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val socketLock = Any()
 
     private var webSocket: WebSocket? = null
     private var socketOpen = false
     private var activeRoomCode: String? = null
+    private var listenerGeneration=0L
 
     val currentUserId: String = "local-${UUID.randomUUID()}"
 
@@ -44,7 +43,7 @@ class CollaborationRepository {
     }
 
     suspend fun joinRoom(roomCode: String): String {
-        return normalizeRoomCode(roomCode)
+        return normalizeRoomCode(roomCode).also {require(it.isNotBlank() && it.length<=128) {"Enter a valid room code or invite link."}}
     }
 
     suspend fun uploadStroke(roomCode: String, stroke: RemoteStroke) {
@@ -57,7 +56,7 @@ class CollaborationRepository {
         withContext(Dispatchers.IO) {
             val sent = synchronized(socketLock) {
                 val socket = webSocket
-                if (socket != null && socketOpen) {
+                if (socket != null && socketOpen && activeRoomCode==normalizeRoomCode(roomCode)) {
                     socket.send(message)
                 } else {
                     false
@@ -80,7 +79,7 @@ class CollaborationRepository {
         withContext(Dispatchers.IO) {
             val sent = synchronized(socketLock) {
                 val socket = webSocket
-                if (socket != null && socketOpen) {
+                if (socket != null && socketOpen && activeRoomCode==normalizeRoomCode(roomCode)) {
                     socket.send(message)
                 } else {
                     false
@@ -103,23 +102,27 @@ class CollaborationRepository {
         val normalized = normalizeRoomCode(roomCode)
         val closedByUser = AtomicBoolean(false)
 
-        synchronized(socketLock) {
+        val generation=synchronized(socketLock) {
+            listenerGeneration++
             webSocket?.close(1000, "Switching rooms")
             webSocket = null
             socketOpen = false
             activeRoomCode = normalized
+            listenerGeneration
         }
+        fun valid()=synchronized(socketLock) {!closedByUser.get() && listenerGeneration==generation && activeRoomCode==normalized}
 
         fun connect(): WebSocket {
             val request = Request.Builder()
                 .url("$websocketBaseUrl/${normalized.urlEncoded()}")
                 .build()
 
-            return client.newWebSocket(
+            return synchronized(socketLock) {client.newWebSocket(
             request,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     synchronized(socketLock) {
+                        if(!valid()) {webSocket.close(1000,"Stale subscription");return}
                         this@CollaborationRepository.webSocket = webSocket
                         socketOpen = true
                     }
@@ -130,27 +133,28 @@ class CollaborationRepository {
                             .toString()
                     )
                     scope.launch(Dispatchers.Main) {
-                        onConnected()
+                        if(valid()) onConnected()
                     }
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
+                    if(!valid()) return
                     runCatching {
                         text.toCollaborationMessage()
                     }.onSuccess { message ->
                         if (message.strokes.isNotEmpty()) {
                             scope.launch(Dispatchers.Main) {
-                                onStrokes(message.strokes)
+                                if(valid()) onStrokes(message.strokes)
                             }
                         }
                         message.canvasState?.let { state ->
                             scope.launch(Dispatchers.Main) {
-                                onCanvasState(state)
+                                if(valid()) onCanvasState(state)
                             }
                         }
                     }.onFailure { error ->
                         scope.launch(Dispatchers.Main) {
-                            onError(error)
+                            if(valid()) onError(error)
                         }
                     }
                 }
@@ -161,13 +165,13 @@ class CollaborationRepository {
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             socketOpen = false
                         }
-                        !closedByUser.get() && response?.code != 429 && activeRoomCode == normalized
+                        valid() && response?.code != 429 && this@CollaborationRepository.webSocket==webSocket
                     }
 
                     if (shouldReconnect) {
                         scope.launch {
                             kotlinx.coroutines.delay(1200)
-                            if (!closedByUser.get()) {
+                            if (valid()) {
                                 connect()
                             }
                         }
@@ -179,23 +183,27 @@ class CollaborationRepository {
                         }
                     }
                     scope.launch(Dispatchers.Main) {
-                        onError(error)
+                        if(valid()) onError(error)
                     }
                 }
 
+                override fun onClosing(webSocket:WebSocket,code:Int,reason:String) {webSocket.close(code,reason)}
+
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
                     val shouldReconnect = synchronized(socketLock) {
+                        val current=this@CollaborationRepository.webSocket==webSocket
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             this@CollaborationRepository.webSocket = null
                             socketOpen = false
                         }
-                        !closedByUser.get() && code != 1000 && activeRoomCode == normalized
+                        valid() && current && code != 1000
                     }
+                    scope.launch(Dispatchers.Main) {if(valid()) onError(IllegalStateException(if(shouldReconnect) "Connection interrupted. Reconnecting..." else "Connection closed. Tap Reconnect to join again."))}
 
                     if (shouldReconnect) {
                         scope.launch {
                             kotlinx.coroutines.delay(1200)
-                            if (!closedByUser.get()) {
+                            if (valid()) {
                                 connect()
                             }
                         }
@@ -209,18 +217,19 @@ class CollaborationRepository {
                     }
                 }
             }
-            )
+            ).also {socket->if(valid()) webSocket=socket else socket.close(1000,"Stale subscription")}}
         }
 
         val socket = connect()
 
         synchronized(socketLock) {
-            webSocket = socket
+            if(valid()) webSocket = socket else socket.close(1000,"Stale subscription")
         }
 
         return CollaborationSubscription {
             closedByUser.set(true)
             val socketToClose = synchronized(socketLock) {
+                if(listenerGeneration!=generation) return@synchronized null
                 val current = webSocket
                 webSocket = null
                 socketOpen = false
@@ -273,6 +282,7 @@ class CollaborationRepository {
                                 .put("x", point.x)
                                 .put("y", point.y)
                                 .put("pressure", point.pressure)
+                                .put("timestamp",point.timestamp).put("tilt",point.tilt).put("orientation",point.orientation)
                         )
                     }
                 }
@@ -286,8 +296,10 @@ class CollaborationRepository {
                     .put("baseWidth", toolConfig.baseWidth)
                     .put("opacity", toolConfig.opacity)
                     .put("usePressure", toolConfig.usePressure)
+                    .apply {toolConfig.settingsJson?.let {put("settings",JSONObject(it))}}
             )
             .put("createdAt", createdAt)
+            .put("pageId",pageId)
     }
 
     private fun RemoteCanvasState.toJson(): JSONObject {
@@ -314,9 +326,10 @@ class CollaborationRepository {
                     if (point != null) {
                         add(
                             RemoteStrokePoint(
-                                x = point.optDouble("x"),
-                                y = point.optDouble("y"),
-                                pressure = point.optDouble("pressure", 1.0)
+                                x = point.finiteDouble("x", 0.0),
+                                y = point.finiteDouble("y", 0.0),
+                                pressure = point.finiteDouble("pressure", 1.0).coerceIn(0.0, 1.0),timestamp=point.optLong("timestamp"),
+                                tilt=point.finiteDouble("tilt", 0.0),orientation=point.finiteDouble("orientation", 0.0)
                             )
                         )
                     }
@@ -326,11 +339,11 @@ class CollaborationRepository {
                 type = tool.optString("type", "PEN"),
                 style = tool.optString("style", "SOLID"),
                 colorArgb = tool.optLong("colorArgb", 0xFF000000L),
-                baseWidth = tool.optDouble("baseWidth", 4.0),
-                opacity = tool.optDouble("opacity", 1.0),
-                usePressure = tool.optBoolean("usePressure", true)
+                baseWidth = tool.finiteDouble("baseWidth", 4.0).coerceIn(0.1, 200.0),
+                opacity = tool.finiteDouble("opacity", 1.0).coerceIn(0.0, 1.0),
+                usePressure = tool.optBoolean("usePressure", true),settingsJson=tool.optJSONObject("settings")?.toString()
             ),
-            createdAt = optLong("createdAt", 0L)
+            createdAt = optLong("createdAt", 0L),pageId=optString("pageId","page-1")
         )
     }
 
@@ -349,11 +362,18 @@ class CollaborationRepository {
         )
     }
 
+    // Older relays omit stylus metadata. optDouble without a fallback produces NaN,
+    // which renders initially but makes the received document impossible to save.
+    private fun JSONObject.finiteDouble(key: String, fallback: Double): Double =
+        optDouble(key, fallback).takeIf { it.isFinite() } ?: fallback
+
     private fun normalizeRoomCode(input: String): String {
         return input
+            .trim()
             .substringAfter("room=", input)
             .substringBefore("&")
             .substringAfterLast("/")
+            .substringBefore("?").substringBefore("#")
             .trim()
     }
 

@@ -1,144 +1,122 @@
-package `in`.innovaticshub.notepad.ui.canvas.engine
+﻿package `in`.innovaticshub.notepad.ui.canvas.engine
 
-import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
-import `in`.innovaticshub.notepad.ui.canvas.model.StrokeBuilder
-import `in`.innovaticshub.notepad.ui.canvas.model.StrokePoint
-import `in`.innovaticshub.notepad.ui.canvas.model.ToolConfig
-import kotlin.math.max
-import kotlin.math.min
-import kotlin.math.sqrt
+import `in`.innovaticshub.notepad.ui.canvas.model.*
+import kotlin.math.*
 
-/**
- * Vector stroke eraser: removes or splits strokes intersecting the eraser path.
- */
+/** Clips vector segments against swept eraser capsules, including sparse and tap strokes. */
 object StrokeEraser {
-
+    data class Interval(val start: Float, val end: Float)
     fun erase(strokes: List<Stroke>, eraserStroke: Stroke): List<Stroke> {
-        if (strokes.isEmpty() || eraserStroke.points.size < 2) return strokes
-
-        val eraserRadius = eraserStroke.toolConfig.strokeWidth() / 2f
-        val result = mutableListOf<Stroke>()
-
-        strokes.forEach { stroke ->
-            if (stroke.toolConfig.isEraser) return@forEach
-            val segments = splitStroke(stroke, eraserStroke.points, eraserRadius)
-            result.addAll(segments)
+        if (eraserStroke.points.isEmpty()) return strokes
+        val eraser = eraserStroke.toolConfig
+        val radius = eraser.strokeWidth()/2f
+        val bounds=RectF(eraserStroke.points.minOf {it.x}-radius,eraserStroke.points.minOf {it.y}-radius,
+            eraserStroke.points.maxOf {it.x}+radius,eraserStroke.points.maxOf {it.y}+radius)
+        return strokes.flatMap { stroke ->
+            if (!stroke.bounds.intersects(bounds) || stroke.toolConfig.isEraser || (eraser.eraseHighlighterOnly && stroke.toolConfig.type != ToolType.HIGHLIGHTER)) listOf(stroke)
+            else split(stroke,eraserStroke.points,radius,eraser.eraserMode)
         }
-        return result
     }
 
-    private fun splitStroke(
-        stroke: Stroke,
-        eraserPoints: List<StrokePoint>,
-        eraserRadius: Float
-    ): List<Stroke> {
-        val runs = mutableListOf<MutableList<StrokePoint>>()
-        var current = mutableListOf<StrokePoint>()
+    private fun split(stroke:Stroke, eraser:List<StrokePoint>, radius:Float, mode:EraserMode):List<Stroke> {
+        val points=InkGeometry.samples(stroke.points,stroke.toolConfig.smoothing)
+        if(points.isEmpty()) return listOf(stroke)
+        if(points.size==1) {
+            val p=points.single()
+            return if(eraser.any { hypot(p.x-it.x,p.y-it.y)<=radius+stroke.toolConfig.strokeWidth(p.pressure)/2 } ||
+                eraser.zipWithNext().any { (a,b)-> pointDistance(p,a,b)<=radius+stroke.toolConfig.strokeWidth(p.pressure)/2 }) emptyList() else listOf(stroke)
+        }
+        val runs=mutableListOf<MutableList<StrokePoint>>()
+        var current=mutableListOf<StrokePoint>()
+        var changed=false
+        points.zipWithNext().forEach { (a,b) ->
+            val hitRadius=radius+maxOf(stroke.toolConfig.strokeWidth(a.pressure),stroke.toolConfig.strokeWidth(b.pressure))/2
+            val cuts=cuts(a,b,eraser,hitRadius)
+            if(cuts.isNotEmpty()) {
+                changed=true
+                if(mode==EraserMode.STROKE) return emptyList()
+            }
+            val kept=complement(cuts)
+            kept.forEach { interval ->
+                val from=interpolate(a,b,interval.start); val to=interpolate(a,b,interval.end)
+                if(current.isNotEmpty() && hypot(current.last().x-from.x,current.last().y-from.y)>0.01f) {
+                    if(current.size>=2) runs+=current
+                    current=mutableListOf()
+                }
+                if(current.isEmpty()) current+=from
+                current+=to
+                if(interval.end<0.99999f) { if(current.size>=2) runs+=current; current=mutableListOf() }
+            }
+            if(kept.isEmpty() && current.isNotEmpty()) { if(current.size>=2) runs+=current; current=mutableListOf() }
+        }
+        if(current.size>=2) runs+=current
+        if(!changed) return listOf(stroke)
+        return runs.mapIndexed { index, run ->
+            val tool=stroke.toolConfig.copy(smoothing=0f)
+            Stroke(if(index==0) stroke.id else Stroke.generateId(),run,InkGeometry.path(run),tool,stroke.pageId)
+        }
+    }
 
-        stroke.points.forEachIndexed { index, point ->
-            val hit = pointHitsEraser(point, eraserPoints, eraserRadius) ||
-                index > 0 && segmentHitsEraser(stroke.points[index - 1], point, eraserPoints, eraserRadius)
-            if (hit) {
-                if (current.size >= 2) runs.add(current)
-                current = mutableListOf()
-            } else {
-                current.add(point)
+    fun survivingIntervals(a:StrokePoint,b:StrokePoint,eraser:List<StrokePoint>,radius:Float):List<Interval> =
+        complement(cuts(a,b,eraser,radius))
+
+    private fun cuts(a:StrokePoint,b:StrokePoint,eraser:List<StrokePoint>,radius:Float):List<Interval> {
+        val result=mutableListOf<Interval>()
+        eraser.forEach { disk(a,b,it,radius)?.let(result::add) }
+        eraser.zipWithNext().forEach { (c,d) ->
+            val dx=d.x-c.x; val dy=d.y-c.y
+            val length2=dx*dx+dy*dy
+            if(length2>0.000001f) {
+                var range=Interval(0f,1f)
+                fun constrain(origin:Float,slope:Float,min:Float,max:Float):Boolean {
+                    val interval=linear(origin,slope,min,max) ?: return false
+                    range=Interval(maxOf(range.start,interval.start),minOf(range.end,interval.end))
+                    return range.end>=range.start
+                }
+                val projection=(a.x-c.x)*dx+(a.y-c.y)*dy
+                val projectionSlope=(b.x-a.x)*dx+(b.y-a.y)*dy
+                val cross=(a.x-c.x)*dy-(a.y-c.y)*dx
+                val crossSlope=(b.x-a.x)*dy-(b.y-a.y)*dx
+                if(constrain(projection,projectionSlope,0f,length2) &&
+                    constrain(cross,crossSlope,-radius*sqrt(length2),radius*sqrt(length2))) result+=range
             }
         }
-        if (current.size >= 2) runs.add(current)
-
-        return runs.map { points ->
-            val builder = StrokeBuilder(stroke.toolConfig)
-            points.forEach { builder.addPoint(it) }
-            builder.build()
-        }.filter { !it.isEmpty }
+        val merged=mutableListOf<Interval>()
+        result.filter { it.end>=0 && it.start<=1 }.map { Interval(it.start.coerceIn(0f,1f),it.end.coerceIn(0f,1f)) }
+            .sortedBy { it.start }.forEach { interval ->
+                val last=merged.lastOrNull()
+                if(last!=null && interval.start<=last.end+0.000001f) merged[merged.lastIndex]=Interval(last.start,maxOf(last.end,interval.end))
+                else merged+=interval
+            }
+        return merged
     }
-
-    private fun pointHitsEraser(
-        point: StrokePoint,
-        eraserPoints: List<StrokePoint>,
-        eraserRadius: Float
-    ): Boolean {
-        return eraserPoints.zipWithNext().any { (a, b) ->
-            distancePointToSegment(point.x, point.y, a.x, a.y, b.x, b.y) <= eraserRadius
-        } || eraserPoints.any { ep ->
-            distance(ep.x, ep.y, point.x, point.y) <= eraserRadius
-        }
+    private fun complement(cuts:List<Interval>):List<Interval> = buildList {
+        var cursor=0f
+        cuts.forEach { interval -> if(interval.start-cursor>0.000001f) add(Interval(cursor,interval.start)); cursor=maxOf(cursor,interval.end) }
+        if(cursor<0.999999f) add(Interval(cursor,1f))
     }
-
-    private fun segmentHitsEraser(
-        a: StrokePoint,
-        b: StrokePoint,
-        eraserPoints: List<StrokePoint>,
-        eraserRadius: Float
-    ): Boolean {
-        return eraserPoints.zipWithNext().any { (e1, e2) ->
-            segmentDistance(a.x, a.y, b.x, b.y, e1.x, e1.y, e2.x, e2.y) <= eraserRadius
-        }
+    private fun linear(origin:Float,slope:Float,min:Float,max:Float):Interval? {
+        if(abs(slope)<0.000001f) return if(origin in min..max) Interval(0f,1f) else null
+        val a=(min-origin)/slope; val b=(max-origin)/slope
+        return Interval(minOf(a,b),maxOf(a,b))
     }
-
-    private fun distance(x1: Float, y1: Float, x2: Float, y2: Float): Float {
-        val dx = x1 - x2
-        val dy = y1 - y2
-        return sqrt(dx * dx + dy * dy)
+    private fun disk(a:StrokePoint,b:StrokePoint,c:StrokePoint,r:Float):Interval? {
+        val dx=b.x-a.x; val dy=b.y-a.y; val ox=a.x-c.x; val oy=a.y-c.y
+        val aa=dx*dx+dy*dy; val cc=ox*ox+oy*oy-r*r
+        if(aa<0.000001f) return if(cc<=0) Interval(0f,1f) else null
+        val bb=2*(ox*dx+oy*dy); val determinant=bb*bb-4*aa*cc
+        if(determinant<0) return null
+        val root=sqrt(determinant)
+        return Interval((-bb-root)/(2*aa),(-bb+root)/(2*aa))
     }
-
-    private fun distancePointToSegment(
-        px: Float,
-        py: Float,
-        ax: Float,
-        ay: Float,
-        bx: Float,
-        by: Float
-    ): Float {
-        val dx = bx - ax
-        val dy = by - ay
-        val lengthSq = dx * dx + dy * dy
-        if (lengthSq == 0f) return distance(px, py, ax, ay)
-
-        val t = (((px - ax) * dx + (py - ay) * dy) / lengthSq).coerceIn(0f, 1f)
-        return distance(px, py, ax + t * dx, ay + t * dy)
-    }
-
-    private fun segmentDistance(
-        ax: Float,
-        ay: Float,
-        bx: Float,
-        by: Float,
-        cx: Float,
-        cy: Float,
-        dx: Float,
-        dy: Float
-    ): Float {
-        if (segmentsIntersect(ax, ay, bx, by, cx, cy, dx, dy)) return 0f
-        return min(
-            min(distancePointToSegment(ax, ay, cx, cy, dx, dy), distancePointToSegment(bx, by, cx, cy, dx, dy)),
-            min(distancePointToSegment(cx, cy, ax, ay, bx, by), distancePointToSegment(dx, dy, ax, ay, bx, by))
-        )
-    }
-
-    private fun segmentsIntersect(
-        ax: Float,
-        ay: Float,
-        bx: Float,
-        by: Float,
-        cx: Float,
-        cy: Float,
-        dx: Float,
-        dy: Float
-    ): Boolean {
-        if (max(ax, bx) < min(cx, dx) || max(cx, dx) < min(ax, bx) ||
-            max(ay, by) < min(cy, dy) || max(cy, dy) < min(ay, by)
-        ) return false
-
-        fun orientation(px: Float, py: Float, qx: Float, qy: Float, rx: Float, ry: Float): Float {
-            return (qy - py) * (rx - qx) - (qx - px) * (ry - qy)
-        }
-
-        val o1 = orientation(ax, ay, bx, by, cx, cy)
-        val o2 = orientation(ax, ay, bx, by, dx, dy)
-        val o3 = orientation(cx, cy, dx, dy, ax, ay)
-        val o4 = orientation(cx, cy, dx, dy, bx, by)
-        return o1 * o2 <= 0f && o3 * o4 <= 0f
+    private fun interpolate(a:StrokePoint,b:StrokePoint,t:Float)=a.copy(
+        x=a.x+(b.x-a.x)*t,y=a.y+(b.y-a.y)*t,pressure=a.pressure+(b.pressure-a.pressure)*t,
+        timestamp=a.timestamp+((b.timestamp-a.timestamp)*t).toLong(),tilt=a.tilt+(b.tilt-a.tilt)*t,
+        orientation=a.orientation+(b.orientation-a.orientation)*t)
+    fun pointDistance(p:StrokePoint,a:StrokePoint,b:StrokePoint):Float {
+        val dx=b.x-a.x; val dy=b.y-a.y
+        val length2=dx*dx+dy*dy
+        val t=if(length2>0) (((p.x-a.x)*dx+(p.y-a.y)*dy)/length2).coerceIn(0f,1f) else 0f
+        return hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)
     }
 }

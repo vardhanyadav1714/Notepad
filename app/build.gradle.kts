@@ -1,26 +1,66 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    id("com.google.devtools.ksp") version "2.0.21-1.0.28"
 }
+
+val releaseProperties = Properties().apply {
+    val propertiesFile = rootProject.file("keystore.properties")
+    if (propertiesFile.isFile) propertiesFile.inputStream().use { load(it) }
+}
+fun signingValue(property: String, environment: String): String? =
+    providers.environmentVariable(environment).orNull?.takeIf { it.isNotBlank() }
+        ?: releaseProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+val releaseStorePassword = signingValue("storePassword", "DRAWLY_KEYSTORE_PASSWORD")
+val releaseKeyPassword = signingValue("keyPassword", "DRAWLY_KEY_PASSWORD")
+val hasReleaseSigning = releaseStorePassword != null && releaseKeyPassword != null
+require((releaseStorePassword == null) == (releaseKeyPassword == null)) {
+    "Supply both storePassword and keyPassword in local keystore.properties or DRAWLY signing environment variables."
+}
+
+val verifyProductionSigning by tasks.registering {
+    doLast {
+        check(hasReleaseSigning) { "Release signing requires the existing keystore credentials in local keystore.properties or DRAWLY signing environment variables." }
+        check(providers.gradleProperty("devicePreview").orNull != "true") { "Production releases must use the Drawly application ID, without devicePreview=true." }
+    }
+}
+tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyProductionSigning) }
 
 android {
     namespace = "in.innovaticshub.notepad"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
-        applicationId = "in.innovaticshub.notepad"
+        val devicePreview=providers.gradleProperty("devicePreview").orNull=="true"
+        applicationId = if(devicePreview) "in.innovaticshub.notepad.preview" else "in.innovaticshub.notepad"
+        manifestPlaceholders["appLabel"]=if(devicePreview) "Notes Preview" else "@string/app_name"
         minSdk = 24
-        targetSdk = 35
-        versionCode = 16
-        versionName = "1.0"
+        targetSdk = 36
+        versionCode = 30
+        versionName = "2.4"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("production") {
+                storeFile = rootProject.file(signingValue("storeFile", "DRAWLY_KEYSTORE_PATH") ?: "drawly.jks")
+                storePassword = releaseStorePassword
+                keyAlias = signingValue("keyAlias", "DRAWLY_KEY_ALIAS") ?: "drawly"
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
     buildTypes {
         release {
-            isMinifyEnabled = false
+            if (hasReleaseSigning) signingConfig = signingConfigs.getByName("production")
+            isMinifyEnabled = true
+            isShrinkResources = true
+            ndk.debugSymbolLevel = "SYMBOL_TABLE"
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -40,6 +80,15 @@ android {
 }
 
 dependencies {
+    implementation("com.google.mlkit:digital-ink-recognition:19.0.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.9.0")
+    implementation("androidx.room:room-runtime:2.7.2")
+    implementation("androidx.room:room-ktx:2.7.2")
+    ksp("androidx.room:room-compiler:2.7.2")
+    implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.biometric:biometric:1.1.0")
+    implementation("androidx.fragment:fragment-ktx:1.8.5")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.compose.material:material-icons-extended:1.7.8")
     implementation(libs.androidx.core.ktx)
@@ -53,9 +102,15 @@ dependencies {
     implementation(libs.androidx.material3)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
+    androidTestImplementation("com.squareup.okhttp3:okhttp-tls:4.12.0")
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
+}
+
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
 }

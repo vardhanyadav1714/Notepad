@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Notes 1.6 — device gesture fixes</title>
+<style>body{font:16px/1.6 system-ui,sans-serif;max-width:1100px;margin:auto;padding:32px 20px;background:#fafafa;color:#242424}h1{line-height:1.2}table{border-collapse:collapse;width:100%}td,th{border:1px solid #ddd;padding:12px;text-align:left}code{overflow-wrap:anywhere}.screens{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:20px}figure{margin:0}img{width:100%;border:1px solid #ddd}figcaption{color:#666}a{color:#a43c26}</style>
+<h1>Notes 1.6: reliable page creation and continuous scrolling</h1>
+<p><strong>Latest update:</strong> <a href="notes-ink-visibility.html">1.7 restores finger writing by default and adds a visible Write/Scroll mode label</a>. The S Pen default described below applies only to 1.6.</p>
+<p>Tested on the connected Samsung Galaxy Tab SM-T733 on 15 October 2026. Notes Preview 1.6 (22) is installed alongside the original app. Existing notes and collaboration settings were preserved.</p>
+<h2>Reproduced failure</h2>
+<p>A two-finger swipe with 12% spacing drift failed to append a page in 1.5, while a parallel swipe succeeded. The recognizer permanently treated any span change above 3% as a pinch. Finger writing also defaulted to enabled on S Pen tablets, so a normal one-finger scroll could write instead. The end-pull preview jumped by 72dp and scrolling stopped immediately on lift.</p>
+<h2>Changes</h2>
+<ul>
+<li>Scroll-versus-pinch detection compares span motion against finger translation, with touch slop. Small spacing drift stays a scroll. A deliberate pinch, including one begun after scrolling or at a zoom limit, cancels provisional page creation.</li>
+<li>The next page is revealed continuously during an end pull, with a 40dp commit threshold. Pulling back can cancel it. A short uncommitted pull returns over 180ms. One gesture adds at most one page and preserves undo.</li>
+<li>Scrolling continues when one finger lifts from a two-finger swipe. That remaining finger cannot resume writing.</li>
+<li>Velocity-based momentum browses existing pages after release. A new canvas contact cancels it immediately. Momentum cannot append pages.</li>
+<li>S Pen devices default to finger scrolling and pen writing. Explicit finger-writing preferences are respected, with a visible tablet toolbar toggle.</li>
+</ul>
+<h2>Physical-device results</h2>
+<table><tr><th>Action in a new review note</th><th>Saved result</th></tr>
+<tr><td>One-finger upward end pull</td><td>2 pages, 0 ink strokes</td></tr>
+<tr><td>Uneven two-finger upward swipe</td><td>3 pages, 0 ink strokes</td></tr>
+<tr><td>Three repeated pinch-outs</td><td>Still 3 pages, 0 ink strokes</td></tr>
+<tr><td>Save, reopen, system theme switch and landscape page sorter</td><td>3 pages preserved; dark/light paper and controls follow the device setting</td></tr></table>
+<p>Samsung Notes was also opened with a temporary blank note for comparison. Its original 89 notes remained unchanged; the empty comparison note was not retained. The tablet's original night mode and automatic rotation were restored.</p>
+<div class="screens">
+<figure><img src="ui/gesture-single-scroll.png" alt="Page two appears after a one-finger swipe"><figcaption>One-finger page creation</figcaption></figure>
+<figure><img src="ui/gesture-drift-scroll.png" alt="Three pages after an uneven two-finger swipe"><figcaption>Uneven two-finger swipe</figcaption></figure>
+<figure><img src="ui/gesture-light.png" alt="Review note in device light mode"><figcaption>Device light mode</figcaption></figure>
+</div>
+<figure><img src="ui/gesture-landscape.png" alt="Review note with its three-page sorter in landscape"><figcaption>Landscape page sorter after reopening</figcaption></figure>
+<h2>Validation and APKs</h2>
+<p>82 tests passed: 26 JVM and 56 Android tests, including the three local TLS/WebSocket collaboration tests. New regressions cover uneven finger spacing, pinch after scrolling, continued navigation after one finger lifts, momentum, touch-to-stop, and cancelling an end pull. Lint completed with 0 errors and 77 warnings. Logs: <code>build-ui-gesture-16-final.log</code>, <code>build-ui-gesture-all-tests.log</code>, <code>build-ui-gesture-physical.log</code> and <code>build-ui-gesture-physical-final.log</code>.</p>
+<p>Installed Preview APK: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\device-preview\notes-preview.apk</code><br>SHA256: <code>40E1BF4840B3ACDADE7B9CF4E82B58D1CFBC10DA233F1A28C849322F1330D089</code></p>
+<p>Standard package APK: <code>C:\Users\vardh\AndroidStudioProjects\Notepad\app\build\outputs\apk\debug\app-debug.apk</code><br>SHA256: <code>0DA59EB47A305658135BD6AC4959EE605815AF65FDD1CC10682B3A7BF822DEA3</code></p>
+<p>The original tablet app uses a different signing certificate, so these fixes are installed as <strong>Notes Preview</strong> with separate storage. Opening the original 1.0 app will still show its previous behaviour. The original app was not uninstalled or cleared.</p>
+<p>These checks establish gesture correctness and momentum behaviour; sustained frame pacing and physical S Pen latency were not benchmarked. Collaboration keeps the existing protocol and ink-only scope. See the <a href="notes-device-review.html">1.5 device/theme review</a> for the earlier implementation details.</p>
+</html>

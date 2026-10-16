@@ -1,0 +1,272 @@
+[
+  {
+    "artifact": "app/build/outputs/apk/release/app-release.apk",
+    "libraries": [
+      {
+        "library": "lib/arm64-v8a/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "lib/arm64-v8a/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "lib/arm64-v8a/libdigitalink.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "lib/armeabi-v7a/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/armeabi-v7a/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/armeabi-v7a/libdigitalink.so",
+        "load_alignment": [
+          4096,
+          4096,
+          4096
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/x86/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/x86/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/x86/libdigitalink.so",
+        "load_alignment": [
+          4096,
+          4096,
+          4096
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "lib/x86_64/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "lib/x86_64/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "lib/x86_64/libdigitalink.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      }
+    ],
+    "passed": true
+  },
+  {
+    "artifact": "app/build/outputs/bundle/release/app-release.aab",
+    "libraries": [
+      {
+        "library": "base/lib/arm64-v8a/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "base/lib/arm64-v8a/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "base/lib/arm64-v8a/libdigitalink.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "base/lib/armeabi-v7a/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/armeabi-v7a/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/armeabi-v7a/libdigitalink.so",
+        "load_alignment": [
+          4096,
+          4096,
+          4096
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/x86/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/x86/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/x86/libdigitalink.so",
+        "load_alignment": [
+          4096,
+          4096,
+          4096
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": false,
+        "passed": null
+      },
+      {
+        "library": "base/lib/x86_64/libandroidx.graphics.path.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "base/lib/x86_64/libdatastore_shared_counter.so",
+        "load_alignment": [
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      },
+      {
+        "library": "base/lib/x86_64/libdigitalink.so",
+        "load_alignment": [
+          16384,
+          16384,
+          16384
+        ],
+        "zip_alignment_ok": true,
+        "required_64_bit": true,
+        "passed": true
+      }
+    ],
+    "passed": true
+  }
+]
