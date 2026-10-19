@@ -3,7 +3,7 @@ Requires adb root on that emulator for inspection of the newly created QA docume
 Never use against a physical device or a shared/user emulator.
 """
 import argparse,pathlib,subprocess,time,re,json,xml.etree.ElementTree as ET
-p=argparse.ArgumentParser(description=__doc__);p.add_argument('--adb',required=True);p.add_argument('--serial',required=True);a=p.parse_args()
+p=argparse.ArgumentParser(description=__doc__);p.add_argument('--adb',required=True);p.add_argument('--serial',required=True);p.add_argument('--results',default='docs/play-release-ui-results-30.json');a=p.parse_args()
 assert a.serial.startswith('emulator-'),'This probe is restricted to an owned QA emulator'
 root=pathlib.Path(__file__).resolve().parents[1]
 results=[]
@@ -28,9 +28,9 @@ def tap_node(n):
 def tap(label):tap_node(find(label))
 def passed(label):
  results.append(dict(check=label,passed=True));print('PASS:',label,flush=True)
- (root/'docs/play-release-ui-results-30.json').write_text(json.dumps(results,indent=2))
+ (root/a.results).write_text(json.dumps(results,indent=2))
 def back():adb('shell','input','keyevent','4')
-title='QA30-'+str(int(time.time()))[-6:]
+title='QA31-'+str(int(time.time()))[-6:]
 adb('shell','am','start','-W','-n','in.innovaticshub.notepad/in.innovaticshub.notepad.MainActivity')
 tap('Create note')
 fields=sorted([n for n in ui() if n.get('class')=='android.widget.EditText'],key=lambda n:int(re.findall(r'\d+',n.get('bounds'))[1]))
@@ -65,4 +65,9 @@ assert len({x['pageId'] for x in s['strokes']})==2
 json.dumps(s,allow_nan=False)
 passed('Saved and reopened document preserves two unique strokes on separate pages')
 tap('Leave room');back();tap('Save and return')
+tap('Open navigation');tap('Settings')
+adb('shell','input','swipe','500','1700','500','700','350')
+find('Privacy policy');find('Contact support')
+tap('Drawly');find('About Drawly');tap('Close');tap('Back to notes')
+passed('Settings exposes privacy policy, support contact and app information')
 print('All optimized-release UI checks passed',flush=True)

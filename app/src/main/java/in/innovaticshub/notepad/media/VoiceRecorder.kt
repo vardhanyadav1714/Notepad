@@ -23,12 +23,15 @@ class VoiceRecorder(private val context: Context) {
             val directory = File(context.filesDir, "recordings")
             directory.mkdirs()
             val file = File(directory, "${UUID.randomUUID()}.m4a")
+            outputFile = file
             val mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
             } else {
                 @Suppress("DEPRECATION")
                 MediaRecorder()
             }
+            // Own resources before setup so permission/prepare failures release them.
+            recorder = mediaRecorder
             mediaRecorder.setAudioSource(MediaRecorder.AudioSource.MIC)
             mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
             mediaRecorder.setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
@@ -37,11 +40,12 @@ class VoiceRecorder(private val context: Context) {
             mediaRecorder.setOutputFile(file.absolutePath)
             mediaRecorder.prepare()
             mediaRecorder.start()
-            recorder = mediaRecorder
-            outputFile = file
             startedAtMs = System.currentTimeMillis()
             file
-        }.getOrNull()
+        }.getOrElse {
+            release()
+            null
+        }
     }
 
     /** Stops and returns (relativePath, durationMs), or null when not recording. */
@@ -56,7 +60,7 @@ class VoiceRecorder(private val context: Context) {
             file.delete()
             null
         }.also {
-            mediaRecorder.release()
+            runCatching { mediaRecorder.release() }
             recorder = null
             outputFile = null
         }
@@ -67,6 +71,7 @@ class VoiceRecorder(private val context: Context) {
             recorder?.stop()
         }
         runCatching { recorder?.release() }
+        outputFile?.delete()
         recorder = null
         outputFile = null
     }

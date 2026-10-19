@@ -1,0 +1,12 @@
+[
+    {
+        "Algorithm":  "SHA256",
+        "Hash":  "C98A88058E3E0E5862F14ACCCE669175AD60E2EBE59953591D226D422368E80F",
+        "Path":  "C:\\Users\\vardh\\AndroidStudioProjects\\Notepad\\app\\build\\outputs\\apk\\release\\app-release.apk"
+    },
+    {
+        "Algorithm":  "SHA256",
+        "Hash":  "763E37077A7F4EFCFE3535B79C778AE3E3E486CC08300538FF5B4E67BFCB0FE5",
+        "Path":  "C:\\Users\\vardh\\AndroidStudioProjects\\Notepad\\app\\build\\outputs\\bundle\\release\\app-release.aab"
+    }
+]

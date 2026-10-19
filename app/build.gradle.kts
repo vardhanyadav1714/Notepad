@@ -39,8 +39,8 @@ android {
         manifestPlaceholders["appLabel"]=if(devicePreview) "Notes Preview" else "@string/app_name"
         minSdk = 24
         targetSdk = 36
-        versionCode = 30
-        versionName = "2.4"
+        versionCode = 31
+        versionName = "2.4.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

@@ -146,6 +146,8 @@ fun TrashScreen(container: AppContainer, onBack: () -> Unit) {
 
 @Composable
 fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val snackbar = remember { SnackbarHostState() }
     val settings = container.settingsRepository
     val theme by settings.themeMode.collectAsState(ThemeMode.SYSTEM)
     val mode by settings.viewMode.collectAsState(NoteViewMode.GRID)
@@ -155,7 +157,12 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     val inkPreferences=remember {`in`.innovaticshub.notepad.ui.canvas.storage.DrawingPreferences(container.appContext)}
     var fingerDrawing by remember {mutableStateOf(inkPreferences.fingerDrawing)}
     val version=remember {container.appContext.packageManager.getPackageInfo(container.appContext.packageName,0).versionName.orEmpty()}
-    NotebookPage("Drawly settings", onBack) { padding ->
+    fun openLink(uri: String) {
+        runCatching { uriHandler.openUri(uri) }.onFailure {
+            scope.launch { snackbar.showSnackbar("No app could open this link. Please try from your browser or email app.") }
+        }
+    }
+    NotebookPage("Drawly settings", onBack, snackbar = snackbar) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal=16.dp,vertical=20.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
             SettingsGroup("Display") {
                 SettingsRow("Theme",when(theme) {ThemeMode.SYSTEM->"Use system settings";ThemeMode.LIGHT->"Light";ThemeMode.DARK->"Dark"}) {choosing="Theme"}
@@ -175,6 +182,14 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             }
             SettingsGroup("About") {
                 SettingsRow("Drawly","Version $version") {choosing="About Drawly"}
+                HorizontalDivider(Modifier.padding(horizontal=20.dp))
+                SettingsRow("Privacy policy", "Read how Drawly handles your data") {
+                    openLink("https://www.freeprivacypolicy.com/live/286e718d-0906-4361-a68b-3292405405f8")
+                }
+                HorizontalDivider(Modifier.padding(horizontal=20.dp))
+                SettingsRow("Contact support", "vardhan.yadav.1714@gmail.com") {
+                    openLink("mailto:vardhan.yadav.1714@gmail.com")
+                }
             }
         }
     }
@@ -183,7 +198,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
             "Theme"->ThemeMode.entries.forEach {option->SettingChoice(when(option) {ThemeMode.SYSTEM->"Use system settings";ThemeMode.LIGHT->"Light";ThemeMode.DARK->"Dark"},theme==option) {scope.launch {settings.setThemeMode(option)};choosing=null}}
             "View"->NoteViewMode.entries.forEach {option->SettingChoice(if(option==NoteViewMode.GRID) "Grid view" else "List view",mode==option) {scope.launch {settings.setViewMode(option)};choosing=null}}
             "Sort notes"->NoteSort.entries.forEach {option->SettingChoice(option.label(),sort==option) {scope.launch {settings.setNoteSort(option)};choosing=null}}
-            else->Text("Notes save automatically on this device. Handwriting, text, images, recordings and PDF annotations stay with your note.")
+            else->Text("Notes save automatically on this device. Optional collaboration sends shared ink to our server and people with the room link. Handwriting recognition runs on-device using Google ML Kit, which may send diagnostic and device information. Android backup depends on your device settings. See the privacy policy for details.")
         }
     }},confirmButton={TextButton(onClick={choosing=null}) {Text("Close")}})}
 }

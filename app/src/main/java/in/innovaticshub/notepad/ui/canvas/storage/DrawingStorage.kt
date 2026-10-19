@@ -8,6 +8,7 @@ import android.media.MediaScannerConnection
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.AtomicFile
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.Canvas
@@ -63,17 +64,27 @@ object DrawingStorage {
         saveDocument(context, FILE_NAME, SavedSession(strokes, background, tool))
     }
 
+    @Synchronized
     fun saveDocument(context:Context,path:String,session:SavedSession) {
         val target=File(context.filesDir,path)
         target.parentFile?.mkdirs()
-        val temporary=File(target.parentFile,"${target.name}.tmp")
-        temporary.writeText(encodeSession(session))
-        check(temporary.renameTo(target)) { "Could not save drawing" }
+        val bytes = encodeSession(session).toByteArray(Charsets.UTF_8)
+        val atomic = AtomicFile(target)
+        val stream = atomic.startWrite()
+        try {
+            stream.write(bytes)
+            atomic.finishWrite(stream)
+        } catch (failure: Throwable) {
+            atomic.failWrite(stream)
+            throw failure
+        }
     }
 
+    @Synchronized
     fun loadDocument(context:Context,path:String):SavedSession? {
         val file=File(context.filesDir,path)
-        return if(file.exists()) decodeSession(file.readText()) else null
+        if (!file.exists() && !File(file.path + ".bak").exists()) return null
+        return AtomicFile(file).openRead().bufferedReader(Charsets.UTF_8).use { decodeSession(it.readText()) }
     }
 
     fun saveSession(context:Context,session:SavedSession)=saveDocument(context,FILE_NAME,session)
@@ -113,11 +124,7 @@ object DrawingStorage {
             root.optString("collaborationRoom").takeIf {it.isNotBlank() && it!="null"})
     }
 
-    fun load(context: Context): SavedSession? {
-        val file = File(context.filesDir, FILE_NAME)
-        if (!file.exists()) return null
-        return decodeSession(file.readText())
-    }
+    fun load(context: Context): SavedSession? = loadDocument(context, FILE_NAME)
 
     //endregion
 

@@ -1,0 +1,18 @@
+[
+  {
+    "check": "Denying microphone permission shows an explanation without crashing",
+    "passed": true
+  },
+  {
+    "check": "Microphone grant, recording, stopping and playback controls work",
+    "passed": true
+  },
+  {
+    "check": "Backgrounding stops recording and both attachments survive process restart",
+    "passed": true
+  },
+  {
+    "check": "Language model download/availability, recognition and adding recognized text work",
+    "passed": true
+  }
+]

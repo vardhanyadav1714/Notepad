@@ -1,10 +1,9 @@
 package `in`.innovaticshub.notepad.data.db.dao
 
 import androidx.room.Dao
-import androidx.room.Insert
-import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
+import androidx.room.Upsert
 import `in`.innovaticshub.notepad.data.db.entity.NoteBlockEntity
 import kotlinx.coroutines.flow.Flow
 
@@ -23,7 +22,10 @@ interface NoteBlockDao {
     @Query("DELETE FROM note_blocks WHERE noteId = :noteId")
     suspend fun deleteForNote(noteId: String)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Query("DELETE FROM note_blocks WHERE noteId = :noteId AND id NOT IN (:retainedIds)")
+    suspend fun deleteMissing(noteId: String, retainedIds: List<String>)
+
+    @Upsert
     suspend fun insertAll(blocks: List<NoteBlockEntity>)
 
     /**
@@ -32,7 +34,8 @@ interface NoteBlockDao {
      */
     @Transaction
     suspend fun bulkReplace(noteId: String, blocks: List<NoteBlockEntity>) {
-        deleteForNote(noteId)
+        // Updating retained rows preserves their PDF pages and annotations.
+        deleteMissing(noteId, blocks.map { it.id })
         insertAll(blocks)
     }
 }

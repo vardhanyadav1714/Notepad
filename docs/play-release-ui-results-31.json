@@ -1,0 +1,30 @@
+[
+  {
+    "check": "Optimized app launches, creates a note, draws, and supports undo/redo",
+    "passed": true
+  },
+  {
+    "check": "Adds a second page and writes on it",
+    "passed": true
+  },
+  {
+    "check": "Handwriting recognition sheet and language controls load",
+    "passed": true
+  },
+  {
+    "check": "Full screen and Back restore editor controls",
+    "passed": true
+  },
+  {
+    "check": "Live collaboration connects and reconnects after reopening",
+    "passed": true
+  },
+  {
+    "check": "Saved and reopened document preserves two unique strokes on separate pages",
+    "passed": true
+  },
+  {
+    "check": "Settings exposes privacy policy, support contact and app information",
+    "passed": true
+  }
+]

@@ -21,6 +21,7 @@ import `in`.innovaticshub.notepad.data.db.entity.TagEntity
 import `in`.innovaticshub.notepad.data.prefs.NoteSort
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -92,7 +93,7 @@ class NoteRepository(
             initialBlocks
         }
         database.withTransaction {
-            noteDao.insert(note)
+            noteDao.insert(note.copy(searchText = buildSearchText(title, blocks)))
             blockDao.bulkReplace(note.id, blocks.map { toEntity(it, note.id) })
         }
         note
@@ -143,7 +144,7 @@ class NoteRepository(
                     DrawingPayload(strokesFile, backgroundArgb)
                 )
             )
-            blockDao.bulkReplace(noteId, listOf(entity))
+            blockDao.insertAll(listOf(entity))
         }
     }
 
@@ -226,39 +227,32 @@ class NoteRepository(
     }
 
     private fun ftsMatchQuery(query: String): String =
-        query.trim().split(Regex("\\s+"))
-            .map { term -> term.replace(Regex("[\"'*()\\-:^]"), "") }
-            .filter { it.isNotBlank() }
-            .joinToString(" ") { "$it*" }
+        Regex("[\\p{L}\\p{N}]+").findAll(query)
+            .joinToString(" ") { match -> "\"${match.value}*\"" }
 
     //endregion
 
     //region Tags
 
-    suspend fun tagsForNote(noteId: String): List<TagEntity> {
-        // TagDao.observeTagsForNote is a Flow; use a one-shot read via the same join.
-        val all = mutableListOf<TagEntity>()
-        tagDao.observeTagsForNote(noteId).map { list ->
-            all.clear()
-            all.addAll(list)
-        }.let { }
-        return all
-    }
+    suspend fun tagsForNote(noteId: String): List<TagEntity> =
+        tagDao.observeTagsForNote(noteId).first()
 
     /** Finds or creates the tag by name (without '#'), then links the note. */
     suspend fun addTagToNote(noteId: String, tagName: String) = withContext(Dispatchers.IO) {
         val name = tagName.removePrefix("#").trim()
         if (name.isEmpty()) return@withContext
-        val tag = tagDao.findByName(name) ?: run {
-            val created = TagEntity(
-                id = UUID.randomUUID().toString(),
-                name = name,
-                createdAt = System.currentTimeMillis()
-            )
-            tagDao.insert(created)
-            created
+        database.withTransaction {
+            val tag = tagDao.findByName(name) ?: run {
+                val created = TagEntity(
+                    id = UUID.randomUUID().toString(),
+                    name = name,
+                    createdAt = System.currentTimeMillis()
+                )
+                tagDao.insert(created)
+                created
+            }
+            tagDao.addTagToNote(NoteTagCrossRef(noteId, tag.id))
         }
-        tagDao.addTagToNote(NoteTagCrossRef(noteId, tag.id))
     }
 
     suspend fun removeTagFromNote(noteId: String, tagId: String) =
@@ -296,7 +290,7 @@ class NoteRepository(
         noteId = noteId,
         position = block.position,
         type = block.type.name,
-        textJson = if (block.type == BlockType.TEXT) RichTextJson.toJson(block.richText) else null,
+        textJson = if (block.type == BlockType.TEXT || block.type == BlockType.CHECKLIST_ITEM) RichTextJson.toJson(block.richText) else null,
         isChecked = if (block.type == BlockType.CHECKLIST_ITEM) block.isChecked == true else null,
         listType = block.listType.name,
         indentLevel = block.indentLevel,

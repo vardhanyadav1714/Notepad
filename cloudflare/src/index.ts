@@ -43,6 +43,7 @@ type ClientMessage =
   | { type: "ping" };
 
 const MAX_STORED_STROKES = 1200;
+const MAX_MESSAGE_BYTES = 1_500_000;
 const MAX_ROOM_CLIENTS = 20;
 const MAX_MESSAGES_PER_WINDOW = 240;
 const RATE_LIMIT_WINDOW_MS = 10_000;
@@ -57,9 +58,9 @@ export default {
     const url = new URL(request.url);
 
     if (url.pathname.startsWith("/ws/")) {
-      const roomId = decodeURIComponent(url.pathname.slice("/ws/".length)).trim();
+      const roomId = decodeRoomId(url.pathname.slice("/ws/".length));
       if (!roomId) {
-        return json({ error: "Missing room id." }, 400);
+        return json({ error: "Invalid room id." }, 400);
       }
       if (request.headers.get("Upgrade") !== "websocket") {
         return json({ error: "Expected WebSocket upgrade." }, 426);
@@ -95,10 +96,14 @@ export default {
     }
 
     const roomFromPath = url.pathname.startsWith("/r/")
-      ? decodeURIComponent(url.pathname.slice("/r/".length)).trim()
+      ? decodeRoomId(url.pathname.slice("/r/".length))
       : "";
     const roomFromQuery = url.searchParams.get("room")?.trim() ?? "";
     const roomId = roomFromPath || roomFromQuery;
+
+    if ((url.pathname.startsWith("/r/") && !roomFromPath) || (roomId && !validRoomId(roomId))) {
+      return json({ error: "Invalid room id." }, 400);
+    }
 
     if (roomId || url.pathname === "/" || url.pathname === "/canvas") {
       return sharePage(url.origin, roomId);
@@ -118,7 +123,8 @@ export class CanvasRoom {
 
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const roomId = decodeURIComponent(url.pathname.slice("/ws/".length)).trim();
+    const roomId = decodeRoomId(url.pathname.slice("/ws/".length));
+    if (!roomId) return json({ error: "Invalid room id." }, 400);
     const connectedClients = this.connectedClients();
 
     if (connectedClients >= MAX_ROOM_CLIENTS) {
@@ -132,6 +138,12 @@ export class CanvasRoom {
       );
     }
 
+    let strokes: RemoteStroke[];
+    try {
+      strokes = await this.getStoredStrokes();
+    } catch {
+      return json({ error: "Room storage is temporarily unavailable. Please retry." }, 503);
+    }
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
 
@@ -139,20 +151,17 @@ export class CanvasRoom {
     server.serializeAttachment({ roomId, connectedAt: Date.now() });
     this.touchRoom();
 
-    server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes: [] }));
-    this.getStoredStrokesSafely()
-      .then((strokes) => {
-        if (strokes.length > 0) {
-          server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
-        }
-      })
-      .catch(() => undefined);
+    server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
 
     return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(sender: WebSocket, message: string | ArrayBuffer): Promise<void> {
     if (typeof message !== "string") {
+      return;
+    }
+    if (message.length > MAX_MESSAGE_BYTES || new TextEncoder().encode(message).byteLength > MAX_MESSAGE_BYTES) {
+      sender.send(JSON.stringify({ type: "error", message: "This canvas update is too large to sync. Your local note is preserved." }));
       return;
     }
 
@@ -169,6 +178,10 @@ export class CanvasRoom {
       sender.send(JSON.stringify({ type: "error", message: "Invalid JSON." }));
       return;
     }
+    if (!isRecord(parsed)) {
+      sender.send(JSON.stringify({ type: "error", message: "Expected a message object." }));
+      return;
+    }
 
     if (parsed.type === "ping") {
       this.touchRoom();
@@ -179,7 +192,7 @@ export class CanvasRoom {
     if (parsed.type === "join") {
       sender.serializeAttachment({
         ...((sender.deserializeAttachment() as object | undefined) ?? {}),
-        userId: parsed.userId ?? "anonymous"
+        userId: typeof parsed.userId === "string" ? parsed.userId.slice(0, 160) : "anonymous"
       });
       sender.send(JSON.stringify({ type: "joined", at: Date.now() }));
       this.touchRoom();
@@ -193,9 +206,13 @@ export class CanvasRoom {
         return;
       }
 
-      this.touchRoom();
-      this.broadcast({ type: "stroke", stroke, at: Date.now() });
-      this.storeStroke(stroke).catch(() => undefined);
+      try {
+        await this.storeStroke(stroke);
+        this.touchRoom();
+        this.broadcast({ type: "stroke", stroke, at: Date.now() });
+      } catch {
+        sender.send(JSON.stringify({ type: "error", message: "Could not store this stroke. The room may be at its sync limit. Your local note is preserved." }));
+      }
       return;
     }
 
@@ -206,9 +223,13 @@ export class CanvasRoom {
         return;
       }
 
-      this.touchRoom();
-      this.broadcast({ type: "canvas_state", state, at: Date.now() });
-      this.storeCanvasState(state.strokes).catch(() => undefined);
+      try {
+        await this.storeCanvasState(state.strokes);
+        this.touchRoom();
+        this.broadcast({ type: "canvas_state", state, at: Date.now() });
+      } catch {
+        sender.send(JSON.stringify({ type: "error", message: "Could not store this canvas update. Please retry. Your local note is preserved." }));
+      }
     }
   }
 
@@ -237,28 +258,20 @@ export class CanvasRoom {
   private broadcast(payload: unknown): void {
     const encoded = JSON.stringify(payload);
     for (const socket of this.connectedSockets()) {
-      socket.send(encoded);
+      try { socket.send(encoded); } catch { /* A disconnected peer must not interrupt delivery to others. */ }
     }
   }
 
-  private async getStoredStrokesSafely(): Promise<RemoteStroke[]> {
-    try {
-      return await this.getStoredStrokes();
-    } catch {
-      return [];
-    }
-  }
-
-  private async getStoredStrokes(): Promise<RemoteStroke[]> {
-    const strokes = await this.state.storage.get<RemoteStroke[]>(STORAGE_STROKES_KEY);
+  private async getStoredStrokes(storage: DurableObjectStorage | DurableObjectTransaction = this.state.storage): Promise<RemoteStroke[]> {
+    const strokes = await storage.get<RemoteStroke[]>(STORAGE_STROKES_KEY);
     if (strokes) {
       return strokes.slice(-MAX_STORED_STROKES);
     }
 
-    const ids = (await this.state.storage.get<string[]>(LEGACY_INDEX_KEY)) ?? [];
+    const ids = (await storage.get<string[]>(LEGACY_INDEX_KEY)) ?? [];
     if (ids.length === 0) return [];
 
-    const values = await this.state.storage.get<RemoteStroke>(
+    const values = await storage.get<RemoteStroke>(
       ids.map((id) => `stroke:${id}`)
     );
     return ids
@@ -267,16 +280,24 @@ export class CanvasRoom {
   }
 
   private async storeStroke(stroke: RemoteStroke): Promise<void> {
-    const strokes = await this.getStoredStrokes();
-    if (strokes.some((storedStroke) => storedStroke.id === stroke.id)) {
-      return;
-    }
-
-    await this.storeCanvasState([...strokes, stroke]);
+    await this.state.storage.transaction(async storage => {
+      const strokes = await this.getStoredStrokes(storage);
+      if (strokes.some(stored => stored.id === stroke.id)) return;
+      const updated = [...strokes, stroke];
+      this.checkStorageSize(updated);
+      await storage.put(STORAGE_STROKES_KEY, updated);
+    });
   }
 
   private async storeCanvasState(strokes: RemoteStroke[]): Promise<void> {
-    await this.state.storage.put(STORAGE_STROKES_KEY, strokes.slice(-MAX_STORED_STROKES));
+    this.checkStorageSize(strokes);
+    await this.state.storage.put(STORAGE_STROKES_KEY, strokes);
+  }
+
+  private checkStorageSize(strokes: RemoteStroke[]): void {
+    if (strokes.length > MAX_STORED_STROKES || new TextEncoder().encode(JSON.stringify(strokes)).byteLength > MAX_MESSAGE_BYTES) {
+      throw new Error("Room sync capacity exceeded");
+    }
   }
 
   private touchRoom(): void {
@@ -317,9 +338,10 @@ export class CanvasRoom {
 }
 
 function sanitizeStroke(input: RemoteStroke): RemoteStroke | null {
-  if (!input || typeof input.id !== "string" || input.id.length > 160) return null;
-  if (typeof input.userId !== "string" || input.userId.length > 160) return null;
+  if (!isRecord(input) || typeof input.id !== "string" || !input.id.trim() || input.id.length > 160) return null;
+  if (typeof input.userId !== "string" || !input.userId.trim() || input.userId.length > 160) return null;
   if (!Array.isArray(input.points) || input.points.length === 0 || input.points.length > 6000) return null;
+  if (input.points.some(point => !isRecord(point))) return null;
 
   const points = input.points.map((point) => ({
     x: finiteNumber(point.x),
@@ -340,11 +362,11 @@ function sanitizeStroke(input: RemoteStroke): RemoteStroke | null {
     userId: input.userId,
     points: points as StrokePoint[],
     toolConfig: {
-      type: stringOr(toolConfig.type, "PEN"),
-      style: stringOr(toolConfig.style, "SOLID"),
+      type: stringOr(toolConfig.type, "PEN").slice(0, 40),
+      style: stringOr(toolConfig.style, "SOLID").slice(0, 40),
       colorArgb: finiteNumber(toolConfig.colorArgb, 0xff000000) ?? 0xff000000,
-      baseWidth: finiteNumber(toolConfig.baseWidth, 4) ?? 4,
-      opacity: finiteNumber(toolConfig.opacity, 1) ?? 1,
+      baseWidth: Math.min(200, Math.max(.1, finiteNumber(toolConfig.baseWidth, 4) ?? 4)),
+      opacity: Math.min(1, Math.max(0, finiteNumber(toolConfig.opacity, 1) ?? 1)),
       usePressure: Boolean(toolConfig.usePressure),
       settings: sanitizePenSettings(toolConfig.settings)
     },
@@ -395,6 +417,21 @@ function finiteNumber(value: unknown, fallback?: number): number | null {
 
 function stringOr(value: unknown, fallback: string): string {
   return typeof value === "string" && value.trim() ? value : fallback;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function validRoomId(value: string): boolean {
+  return /^[a-zA-Z0-9_-]{1,128}$/.test(value);
+}
+
+function decodeRoomId(value: string): string | null {
+  try {
+    const decoded = decodeURIComponent(value).trim();
+    return validRoomId(decoded) ? decoded : null;
+  } catch { return null; }
 }
 
 function json(body: unknown, status = 200): Response {
