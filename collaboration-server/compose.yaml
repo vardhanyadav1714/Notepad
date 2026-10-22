@@ -1,7 +1,8 @@
 services:
   collaboration:
     build:
-      context: ..
+      # Coolify uses the repository root as the Compose project directory.
+      context: .
       dockerfile: collaboration-server/Dockerfile
     restart: unless-stopped
     environment:
