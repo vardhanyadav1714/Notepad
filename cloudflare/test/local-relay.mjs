@@ -22,8 +22,10 @@ async function connect() {
   ws.addEventListener('message', event => received.push(JSON.parse(event.data)));
   await until(() => ws.readyState === WebSocket.OPEN);
   await until(() => received.find(message => message.type === 'room_snapshot'));
-  ws.send(JSON.stringify({ type: 'join', userId: randomUUID() }));
-  return { ws, received };
+  const userId = randomUUID();
+  ws.send(JSON.stringify({ type: 'join', userId }));
+  await until(() => received.find(message => message.type === 'joined'));
+  return { ws, received, userId };
 }
 function stroke(index) {
   return { id: `stroke-${index}`, userId: 'qa-user', pageId: 'page-2', createdAt: index,
@@ -33,6 +35,18 @@ function stroke(index) {
 try {
   const first = await connect();
   const second = await connect();
+  await until(() => second.received.find(message => message.type === 'presence' && message.members.length === 2));
+  first.ws.send(JSON.stringify({ type: 'presence', activity: 'drawing', cursor: { x: 10, y: 20, pageId: 'page-2' } }));
+  first.ws.send(JSON.stringify({ type: 'stroke_preview', stroke: stroke(-1) }));
+  const preview = await until(() => second.received.find(message => message.type === 'stroke_preview' && message.stroke));
+  assert.equal(preview.stroke.userId, first.userId);
+  await until(() => second.received.find(message => message.type === 'presence_update' && message.member.activity === 'drawing'));
+  const temporary = await connect();
+  assert.equal(temporary.received.find(message => message.type === 'room_snapshot').strokes.length, 0);
+  first.ws.send(JSON.stringify({ type: 'stroke_preview', stroke: null }));
+  await until(() => second.received.find(message => message.type === 'stroke_preview' && message.stroke === null));
+  temporary.ws.close(1000, 'Transient probe complete');
+  console.log('PASS: member roster, live activity, bounded previews, and no transient ink in room storage');
   for (let index = 0; index < 20; index++) {
     (index % 2 ? first : second).ws.send(JSON.stringify({ type: 'stroke', stroke: stroke(index) }));
   }

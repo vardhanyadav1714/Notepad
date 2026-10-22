@@ -48,7 +48,7 @@ class MainActivity : FragmentActivity() {
     private fun Intent?.collaborationRoomCode(): String? {
         val uri = this?.data ?: return null
         val valid = (uri.scheme == "notepad" && uri.host == "canvas") ||
-            (uri.scheme == "https" && uri.host == "drawly.smartattendance.xyz" && uri.path?.startsWith("/r/") == true)
+            (uri.scheme == "https" && uri.host == `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationEndpoint.host && uri.path?.startsWith("/r/") == true)
         if (!valid) return null
         return (uri.getQueryParameter("room") ?: uri.lastPathSegment)?.takeIf { it.isNotBlank() }
     }

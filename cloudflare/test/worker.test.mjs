@@ -13,11 +13,12 @@ const { default: worker, CanvasRoom } = await import(`data:text/javascript;base6
 function fixture() {
   const values = new Map();
   const sent = [];
+  let attachment = {};
   const socket = {
     send: text => sent.push(JSON.parse(text)),
     close: () => {},
-    serializeAttachment: () => {},
-    deserializeAttachment: () => ({})
+    serializeAttachment: value => { attachment = value; },
+    deserializeAttachment: () => attachment
   };
   const storage = {
     get: async key => values.get(key),
@@ -28,6 +29,80 @@ function fixture() {
   const state = { storage, getWebSockets: () => [socket], waitUntil: promise => promise };
   return { room: new CanvasRoom(state, {}), socket, sent, values, storage };
 }
+
+test('joining provides temporary server-generated identities and capabilities', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session', label: 'Untrusted name' }));
+  const joined = f.sent.find(message => message.type === 'joined');
+  assert.deepEqual(joined.capabilities, ['presence', 'stroke_preview']);
+  const roster = f.sent.find(message => message.type === 'presence');
+  assert.equal(roster.members.length, 1);
+  assert.match(roster.members[0].label, /^Artist [0-9A-F]{4}$/);
+  assert.equal(roster.members[0].id, joined.memberId);
+  assert.equal(roster.members[0].userId, 'local-session');
+  assert.equal(f.values.has('strokes'), false);
+});
+
+test('presence and preview use connection identity and never enter stored ink', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'presence', userId: 'spoofed', activity: 'drawing', cursor: { x: 100, y: 200, pageId: 'page-2' } }));
+  assert.equal(f.sent.at(-1).member.userId, 'local-session');
+  assert.equal(f.sent.at(-1).member.activity, 'drawing');
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'stroke_preview', stroke: stroke() }));
+  assert.equal(f.sent.at(-1).stroke.userId, 'local-session');
+  assert.equal(f.values.has('strokes'), false);
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'stroke', stroke: stroke() }));
+  assert.equal(f.values.get('strokes').length, 1);
+  assert.equal(f.sent.at(-1).type, 'stroke_preview');
+  assert.equal(f.sent.at(-1).stroke, null);
+});
+
+test('malformed cursors and oversized previews are discarded without damaging the room', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  for (const cursor of [{ x: '100', y: 0, pageId: 'page-1' }, { x: 1e9, y: 0, pageId: 'page-1' }, [], { x: 0, y: 0, pageId: '' }]) {
+    const before = f.sent.length;
+    await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'presence', cursor }));
+    assert.equal(f.sent.length, before);
+  }
+  const before = f.sent.length;
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'stroke_preview', stroke: { ...stroke(), points: Array(129).fill(stroke().points[0]) } }));
+  assert.equal(f.sent.length, before);
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'stroke', stroke: stroke() }));
+  assert.equal(f.values.get('strokes').length, 1);
+});
+
+test('ephemeral rate limit never consumes durable-edit quota', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  for (let i = 0; i < 350; i++) await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'presence', cursor: null }));
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'stroke', stroke: stroke() }));
+  assert.equal(f.values.get('strokes').length, 1);
+  assert.equal(f.sent.some(message => message.type === 'error'), false);
+});
+
+test('leave broadcasts a roster without the departed member', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  const received = [];
+  const peer = { send: text => received.push(JSON.parse(text)), deserializeAttachment: () => ({ member: { id: 'peer', userId: 'peer' } }) };
+  // A close callback may run before the platform removes the closing socket.
+  f.room.state.getWebSockets = () => [f.socket, peer];
+  f.room.webSocketClose(f.socket, 1000, 'Leaving', true);
+  assert.deepEqual(received.at(-1).members.map(member => member.id), ['peer']);
+});
+
+test('a new roster never revives an old drawing cursor after inactivity', async () => {
+  const f = fixture();
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  const attachment = f.socket.deserializeAttachment();
+  f.socket.serializeAttachment({ ...attachment, member: { ...attachment.member, activity: 'drawing', cursor: { x: 10, y: 20, pageId: 'page-1' }, updatedAt: Date.now() - 5000 } });
+  await f.room.webSocketMessage(f.socket, JSON.stringify({ type: 'join', userId: 'local-session' }));
+  const member = f.sent.at(-1).members[0];
+  assert.equal(member.activity, 'idle');
+  assert.equal(member.cursor, null);
+});
 
 function stroke() {
   return { id: 'stroke-1', userId: 'user-1', points: [{ x: 1, y: 2, pressure: .5 }],

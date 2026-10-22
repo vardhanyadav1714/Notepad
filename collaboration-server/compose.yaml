@@ -1,0 +1,19 @@
+services:
+  collaboration:
+    build:
+      context: ..
+      dockerfile: collaboration-server/Dockerfile
+    restart: unless-stopped
+    environment:
+      PORT: '3000'
+      PUBLIC_ORIGIN: '${DRAWLY_COLLAB_ORIGIN:-https://drawly.in}'
+      DATABASE_PATH: /data/rooms.sqlite
+    expose:
+      - '3000'
+    volumes:
+      - drawly-collaboration:/data
+    mem_limit: 512m
+    cpus: 1.0
+    stop_grace_period: 15s
+volumes:
+  drawly-collaboration:

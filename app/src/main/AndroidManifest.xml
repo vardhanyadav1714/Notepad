@@ -55,7 +55,7 @@
                 <category android:name="android.intent.category.BROWSABLE" />
 
                 <data
-                    android:host="drawly.smartattendance.xyz"
+                    android:host="${collaborationHost}"
                     android:pathPrefix="/r"
                     android:scheme="https" />
             </intent-filter>

@@ -23,6 +23,21 @@ class SystemThemeTest {
         val title="System theme ${System.currentTimeMillis()}"
         val note=runBlocking {app.container.settingsRepository.setThemeMode(ThemeMode.SYSTEM);app.container.noteRepository.createNote(title=title)}
         fun shell(command:String) {android.os.ParcelFileDescriptor.AutoCloseInputStream(instrumentation.uiAutomation.executeShellCommand(command)).use {it.readBytes()}}
+        fun clickSettledModeButton(description: String) {
+            // Compose can be idle while the system IME is still moving the
+            // bottom toolbar. Keep real touch injection, but wait for its hit
+            // target to settle instead of tapping the old screen position.
+            val node = compose.onNodeWithContentDescription(description).assertIsDisplayed()
+            var lastBounds: androidx.compose.ui.geometry.Rect? = null
+            var stableSince = android.os.SystemClock.uptimeMillis()
+            compose.waitUntil(10000) {
+                val bounds = node.fetchSemanticsNode().boundsInRoot
+                val now = android.os.SystemClock.uptimeMillis()
+                if (bounds != lastBounds) { lastBounds = bounds; stableSince = now }
+                now - stableSince >= 350
+            }
+            node.performClick()
+        }
         fun assertTheme(dark:Boolean) {
             shell("cmd uimode night ${if(dark) "yes" else "no"}")
             compose.waitUntil(10000) {compose.activity.resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK==if(dark) Configuration.UI_MODE_NIGHT_YES else Configuration.UI_MODE_NIGHT_NO}
@@ -37,19 +52,19 @@ class SystemThemeTest {
             compose.waitUntil(10000) {compose.onAllNodesWithTag("page-text-editor").fetchSemanticsNodes().isNotEmpty()}
             compose.onNodeWithTag("page-text-editor").performTextInput("Keep this text through both themes")
             repeat(6) {
-                compose.onNodeWithContentDescription("Handwriting mode").assertIsDisplayed().performClick()
+                clickSettledModeButton("Handwriting mode")
                 compose.waitUntil(5000) {compose.onAllNodesWithContentDescription("Text mode").fetchSemanticsNodes().isNotEmpty()}
                 compose.onNodeWithTag("page-text-editor").assertDoesNotExist()
-                compose.onNodeWithContentDescription("Text mode").assertIsDisplayed().performClick()
+                clickSettledModeButton("Text mode")
                 compose.waitUntil(5000) {compose.onAllNodesWithTag("page-text-editor").fetchSemanticsNodes().isNotEmpty()}
                 compose.onNodeWithTag("page-text-editor").assertTextContains("Keep this text through both themes")
             }
-            compose.onNodeWithContentDescription("Handwriting mode").performClick()
+            clickSettledModeButton("Handwriting mode")
             compose.waitUntil(5000) {compose.onAllNodesWithContentDescription("Text mode").fetchSemanticsNodes().isNotEmpty()}
             val activity=compose.activity
             assertTheme(false);assertTheme(true);assertTheme(false)
             assertSame("A system theme change must preserve the active editor",activity,compose.activity)
-            compose.onNodeWithContentDescription("Text mode").performClick()
+            clickSettledModeButton("Text mode")
             compose.onNodeWithTag("page-text-editor").assertTextContains("Keep this text through both themes")
             compose.onNodeWithContentDescription("Save and return").performClick()
             compose.waitUntil(10000) {compose.onAllNodesWithContentDescription("Create note").fetchSemanticsNodes().isNotEmpty()}

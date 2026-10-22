@@ -40,7 +40,16 @@ type ClientMessage =
   | { type: "join"; userId?: string }
   | { type: "stroke"; stroke?: RemoteStroke }
   | { type: "canvas_state"; state?: RemoteCanvasState }
-  | { type: "ping" };
+  | { type: "ping" }
+  | { type: "presence"; cursor?: unknown; activity?: unknown }
+  | { type: "stroke_preview"; stroke?: RemoteStroke | null };
+
+type RoomMember = {
+  id: string; userId: string; label: string; colorArgb: number;
+  activity: string; cursor: { x: number; y: number; pageId: string } | null; updatedAt: number;
+};
+type Connection = { roomId?: string; connectedAt?: number; member?: RoomMember };
+const MEMBER_COLORS = [0xff2563eb, 0xff9333ea, 0xff0f766e, 0xffc2410c, 0xffbe185d, 0xff4d7c0f];
 
 const MAX_STORED_STROKES = 1200;
 const MAX_MESSAGE_BYTES = 1_500_000;
@@ -115,6 +124,7 @@ export default {
 
 export class CanvasRoom {
   private readonly messageTimes = new WeakMap<WebSocket, number[]>();
+  private readonly ephemeralTimes = new WeakMap<WebSocket, number[]>();
 
   constructor(
     private readonly state: DurableObjectState,
@@ -138,22 +148,24 @@ export class CanvasRoom {
       );
     }
 
-    let strokes: RemoteStroke[];
+    const pair = new WebSocketPair();
+    const [client, server] = Object.values(pair);
     try {
-      strokes = await this.getStoredStrokes();
+      await this.attachSocket(server, roomId);
     } catch {
       return json({ error: "Room storage is temporarily unavailable. Please retry." }, 503);
     }
-    const pair = new WebSocketPair();
-    const [client, server] = Object.values(pair);
+    return new Response(null, { status: 101, webSocket: client });
+  }
 
+  /** Shared handshake used by the Worker and the optional standalone host. */
+  async attachSocket(server: WebSocket, roomId: string): Promise<void> {
+    if (!validRoomId(roomId) || this.connectedClients() >= MAX_ROOM_CLIENTS) throw new Error("Room unavailable");
+    const strokes = await this.getStoredStrokes();
     this.state.acceptWebSocket(server);
     server.serializeAttachment({ roomId, connectedAt: Date.now() });
     this.touchRoom();
-
     server.send(JSON.stringify({ type: "room_snapshot", roomId, strokes }));
-
-    return new Response(null, { status: 101, webSocket: client });
   }
 
   async webSocketMessage(sender: WebSocket, message: string | ArrayBuffer): Promise<void> {
@@ -162,12 +174,6 @@ export class CanvasRoom {
     }
     if (message.length > MAX_MESSAGE_BYTES || new TextEncoder().encode(message).byteLength > MAX_MESSAGE_BYTES) {
       sender.send(JSON.stringify({ type: "error", message: "This canvas update is too large to sync. Your local note is preserved." }));
-      return;
-    }
-
-    if (!this.allowMessage(sender)) {
-      sender.send(JSON.stringify({ type: "error", message: "Too many drawing updates. Please slow down for a moment." }));
-      sender.close(1013, "Rate limit exceeded");
       return;
     }
 
@@ -183,6 +189,39 @@ export class CanvasRoom {
       return;
     }
 
+    // Presence and unfinished ink are disposable. They must never consume the
+    // durable-edit quota, write document storage or cause an offline edit queue.
+    if (parsed.type === "presence" || parsed.type === "stroke_preview") {
+      if (!this.allowMessage(sender, this.ephemeralTimes, 300) || message.length > 64_000) return;
+      const attachment = sender.deserializeAttachment() as Connection | null;
+      if (!attachment?.member) return;
+      if (parsed.type === "presence") {
+        const cursor = parsed.cursor;
+        if (cursor !== null && cursor !== undefined && (!isRecord(cursor) ||
+          finiteNumber(cursor.x) === null || finiteNumber(cursor.y) === null ||
+          Math.abs(cursor.x as number) > 1_000_000 || Math.abs(cursor.y as number) > 1_000_000 ||
+          typeof cursor.pageId !== "string" || !cursor.pageId || cursor.pageId.length > 160)) return;
+        const member: RoomMember = { ...attachment.member,
+          activity: ["drawing", "erasing", "selecting"].includes(String(parsed.activity)) ? String(parsed.activity) : "idle",
+          cursor: isRecord(cursor) ? { x: cursor.x as number, y: cursor.y as number, pageId: cursor.pageId as string } : null,
+          updatedAt: Date.now() };
+        sender.serializeAttachment({ ...attachment, member });
+        this.broadcast({ type: "presence_update", member });
+      } else {
+        const stroke = parsed.stroke == null ? null : sanitizeStroke(parsed.stroke);
+        if (parsed.stroke != null && (!stroke || stroke.points.length > 128)) return;
+        if (stroke) stroke.userId = attachment.member.userId;
+        this.broadcast({ type: "stroke_preview", memberId: attachment.member.id, stroke });
+      }
+      return;
+    }
+
+    if (!this.allowMessage(sender)) {
+      sender.send(JSON.stringify({ type: "error", message: "Too many drawing updates. Please slow down for a moment." }));
+      sender.close(1013, "Rate limit exceeded");
+      return;
+    }
+
     if (parsed.type === "ping") {
       this.touchRoom();
       sender.send(JSON.stringify({ type: "pong", at: Date.now() }));
@@ -190,11 +229,16 @@ export class CanvasRoom {
     }
 
     if (parsed.type === "join") {
-      sender.serializeAttachment({
-        ...((sender.deserializeAttachment() as object | undefined) ?? {}),
-        userId: typeof parsed.userId === "string" ? parsed.userId.slice(0, 160) : "anonymous"
-      });
-      sender.send(JSON.stringify({ type: "joined", at: Date.now() }));
+      const previous = (sender.deserializeAttachment() as Connection | null) ?? {};
+      const id = previous.member?.id ?? crypto.randomUUID();
+      const serial = parseInt(id.replace(/-/g, "").slice(0, 6), 16);
+      const member: RoomMember = previous.member ?? { id,
+        userId: typeof parsed.userId === "string" ? parsed.userId.slice(0, 160) : "anonymous",
+        label: `Artist ${id.slice(0, 4).toUpperCase()}`, colorArgb: MEMBER_COLORS[serial % MEMBER_COLORS.length],
+        activity: "idle", cursor: null, updatedAt: Date.now() };
+      sender.serializeAttachment({ ...previous, member });
+      sender.send(JSON.stringify({ type: "joined", memberId: id, capabilities: ["presence", "stroke_preview"], at: Date.now() }));
+      this.broadcastPresence();
       this.touchRoom();
       return;
     }
@@ -210,6 +254,8 @@ export class CanvasRoom {
         await this.storeStroke(stroke);
         this.touchRoom();
         this.broadcast({ type: "stroke", stroke, at: Date.now() });
+        const member = (sender.deserializeAttachment() as Connection | null)?.member;
+        if (member) this.broadcast({ type: "stroke_preview", memberId: member.id, stroke: null });
       } catch {
         sender.send(JSON.stringify({ type: "error", message: "Could not store this stroke. The room may be at its sync limit. Your local note is preserved." }));
       }
@@ -235,10 +281,28 @@ export class CanvasRoom {
 
   webSocketClose(ws: WebSocket, code: number, reason: string, wasClean: boolean): void {
     this.messageTimes.delete(ws);
+    this.ephemeralTimes.delete(ws);
+    this.broadcastPresence(ws);
     if (this.connectedClients() === 0) {
       this.scheduleCleanup();
     }
     ws.close(code, reason);
+  }
+
+  webSocketError(ws: WebSocket): void {
+    this.webSocketClose(ws, 1011, "Connection interrupted", false);
+  }
+
+  private broadcastPresence(excluding?: WebSocket): void {
+    const members = this.connectedSockets().filter(socket => socket !== excluding)
+      .map(socket => (socket.deserializeAttachment() as Connection | null)?.member)
+      .filter((member): member is RoomMember => Boolean(member))
+      .map(member => Date.now() - member.updatedAt > 4_000 ? { ...member, activity: "idle", cursor: null } : member);
+    const encoded = JSON.stringify({ type: "presence", members });
+    for (const socket of this.connectedSockets()) {
+      if (socket === excluding) continue;
+      try { socket.send(encoded); } catch { /* Other peers still receive the roster. */ }
+    }
   }
 
   async alarm(): Promise<void> {
@@ -326,14 +390,14 @@ export class CanvasRoom {
     return this.connectedSockets().length;
   }
 
-  private allowMessage(socket: WebSocket): boolean {
+  private allowMessage(socket: WebSocket, times = this.messageTimes, limit = MAX_MESSAGES_PER_WINDOW): boolean {
     const now = Date.now();
-    const recent = (this.messageTimes.get(socket) ?? []).filter(
+    const recent = (times.get(socket) ?? []).filter(
       (sentAt) => now - sentAt < RATE_LIMIT_WINDOW_MS
     );
     recent.push(now);
-    this.messageTimes.set(socket, recent);
-    return recent.length <= MAX_MESSAGES_PER_WINDOW;
+    times.set(socket, recent.slice(-limit));
+    return recent.length <= limit;
   }
 }
 
@@ -451,7 +515,7 @@ function generateRoomId(): string {
 
 function sharePage(origin: string, roomId: string): Response {
   const room = escapeHtml(roomId);
-  const title = room ? `Join Notepad room ${room}` : "Notepad Collaboration";
+  const title = room ? `Join Drawly room ${room}` : "Drawly Collaboration";
   const appLink = room ? `notepad://canvas?room=${encodeURIComponent(roomId)}` : "notepad://canvas";
   const html = `<!doctype html>
 <html lang="en">
@@ -472,8 +536,8 @@ function sharePage(origin: string, roomId: string): Response {
 <body>
   <main>
     <section>
-      <h1>${room ? "Join this canvas" : "Notepad Collaboration"}</h1>
-      <p>${room ? "Open this room in the Notepad app to draw together in real time." : "Create a room from the Notepad app and share the link with your study group."}</p>
+      <h1>${room ? "Join this canvas" : "Drawly Collaboration"}</h1>
+      <p>${room ? "Open this room in the Drawly app to draw together in real time." : "Create a room from the Drawly app and share the link with your study group."}</p>
       ${room ? `<p><a href="${appLink}">Open in app</a></p><p>Room code</p><code>${room}</code>` : ""}
       ${room ? `<script>setTimeout(() => { location.href = "${appLink}"; }, 250);</script>` : ""}
     </section>

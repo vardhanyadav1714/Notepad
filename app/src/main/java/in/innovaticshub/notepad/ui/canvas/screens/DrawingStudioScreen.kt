@@ -185,7 +185,7 @@ fun DrawingStudioScreen(viewModel:DrawingViewModel,onBack:()->Unit,onSaveText:su
     fun invite() {
         val room=state.collaborationRoomCode
         if(room==null) { viewModel.createCollaborationRoom(); sheet="collaboration" }
-        else context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"Join my Drawly canvas: https://drawly.smartattendance.xyz/r/$room") },"Invite to canvas"))
+        else context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply { type="text/plain";putExtra(Intent.EXTRA_TEXT,"Join my Drawly canvas: ${`in`.innovaticshub.notepad.ui.canvas.collab.CollaborationEndpoint.shareLink(room)}") },"Invite to canvas"))
     }
     @Composable fun InkRow() {
         Surface(color=MaterialTheme.colorScheme.surface) {Column {
@@ -203,7 +203,7 @@ fun DrawingStudioScreen(viewModel:DrawingViewModel,onBack:()->Unit,onSaveText:su
                     modifier=Modifier.weight(1f).padding(horizontal=8.dp).testTag("note-title-editor"),
                     decorationBox={field->Box {if((title ?: state.documentTitle).isBlank()) Text("Title",style=MaterialTheme.typography.titleLarge,color=MaterialTheme.colorScheme.onSurfaceVariant);field()}})
                 if(landscape || tablet) IconButton(onClick={if(tablet) pageRail=!pageRail else sheet="pages"}) {Icon(Icons.Outlined.Layers,"Pages")}
-                IconButton(onClick={sheet="collaboration"}) {Icon(Icons.Outlined.Group,"Collaboration",Modifier.size(23.dp),tint=if(state.collaborationConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)}
+                RoomMembersButton(viewModel, state.collaborationConnected, onClick={sheet="collaboration"})
                 IconButton(onClick={write();pan=!pan}) {Icon(if(pan) Icons.Outlined.Edit else Icons.Outlined.MenuBook,if(pan) "Edit note" else "Reading mode",Modifier.size(23.dp))}
                 Box {
                     IconButton(onClick={insertMenu=true}) {Icon(Icons.Outlined.Add,"Insert",Modifier.size(27.dp))}

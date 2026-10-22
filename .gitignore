@@ -36,3 +36,8 @@ build-ui-*.log
 /cloudflare/.env.*
 /cloudflare/.dev.vars
 /cloudflare/.dev.vars.*
+/collaboration-server/node_modules/
+/collaboration-server/dist/
+/collaboration-server/data/
+**/.coolify-access.env
+**/.godaddy-access.env

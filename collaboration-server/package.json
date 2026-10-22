@@ -1,0 +1,13 @@
+{
+  "name": "drawly-collaboration-server",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": {
+    "build": "esbuild ../cloudflare/src/index.ts --format=esm --platform=node --target=node24 --outfile=dist/protocol.mjs",
+    "start": "node server.mjs",
+    "test": "npm run build && node --test test/*.test.mjs"
+  },
+  "dependencies": { "ws": "8.22.0" },
+  "devDependencies": { "esbuild": "0.28.2" }
+}

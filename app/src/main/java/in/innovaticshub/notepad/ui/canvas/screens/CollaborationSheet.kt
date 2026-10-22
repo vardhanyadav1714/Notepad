@@ -25,8 +25,9 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
         val room=state.collaborationRoomCode
         if(room!=null) {
             Text(if(state.collaborationConnected) "Connected" else "Not connected",color=MaterialTheme.colorScheme.primary)
+            RoomMemberList(model)
             SelectionContainer {Text(room,style=MaterialTheme.typography.headlineSmall)}
-            Button(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,"Join my Drawly canvas: https://drawly.smartattendance.xyz/r/$room")},"Share collaboration invite"))}) {Text("Share invite link")}
+            Button(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,"Join my Drawly canvas: ${`in`.innovaticshub.notepad.ui.canvas.collab.CollaborationEndpoint.shareLink(room)}")},"Share collaboration invite"))}) {Text("Share invite link")}
             if(!state.collaborationConnected) OutlinedButton(onClick={model.joinCollaborationRoom(room)},enabled=!state.isCollaborationBusy) {Text("Reconnect")}
             TextButton(onClick=model::leaveCollaborationRoom) {Text("Leave room")}
         } else {
@@ -36,5 +37,7 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
             OutlinedButton(onClick={model.joinCollaborationRoom(invitation)},enabled=invitation.isNotBlank() && !state.isCollaborationBusy,modifier=Modifier.fillMaxWidth()) {Text("Join room")}
         }
         Text("Handwriting and ink edits are shared live. Text, images, audio and imported PDFs stay on this device.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("Draw with people you know. Everyone with the invite link can join and see shared ink. Do not draw your name, address, school, phone number or other personal details.",
+            style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

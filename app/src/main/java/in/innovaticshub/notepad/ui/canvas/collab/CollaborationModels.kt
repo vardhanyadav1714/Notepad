@@ -33,3 +33,20 @@ data class RemoteCanvasState(
     val strokes: List<RemoteStroke> = emptyList(),
     val updatedAt: Long = 0L
 )
+
+/** Session-only identity. Never stored in the drawing or used as an account. */
+data class RoomMember(
+    val id: String,
+    val userId: String,
+    val label: String,
+    val colorArgb: Long,
+    val activity: String = "idle",
+    val cursor: MemberCursor? = null,
+    val updatedAt: Long = 0L,
+    val isSelf: Boolean = false,
+    val receivedAt: Long = System.currentTimeMillis()
+)
+
+data class MemberCursor(val x: Float, val y: Float, val pageId: String)
+
+data class LiveStrokePreview(val memberId: String, val stroke: RemoteStroke?, val receivedAt: Long = System.currentTimeMillis())

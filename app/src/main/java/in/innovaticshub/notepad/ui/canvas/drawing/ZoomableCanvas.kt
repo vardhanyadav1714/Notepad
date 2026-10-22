@@ -314,6 +314,7 @@ fun ZoomableCanvas(viewModel:DrawingViewModel,modifier:Modifier=Modifier,backgro
                 if(showDocumentTitle && page.id==uiState.pages.first().id) uiState.documentTitle else null,
                 if(currentStroke?.pageId==page.id && currentStroke?.toolConfig?.isEraser==true) currentStroke else null)
         } }
+        CollaborationOverlay(viewModel, zoomState, layout, backgroundColor)
         if(appendPreview) {
             val lastPage=uiState.pages.last()
             val preview=remember(lastPage) {lastPage.copy(id="preview-next-page",pdfPath=null,pdfPageIndex=0)}

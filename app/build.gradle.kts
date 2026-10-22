@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.net.URI
 
 plugins {
     alias(libs.plugins.android.application)
@@ -29,6 +30,14 @@ val verifyProductionSigning by tasks.registering {
 }
 tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verifyProductionSigning) }
 
+// Staging/Hetzner builds can select an origin without changing the live default.
+val collaborationOrigin = providers.gradleProperty("collaborationOrigin").orNull ?: "https://drawly.smartattendance.xyz"
+val collaborationUri = URI(collaborationOrigin)
+require(collaborationUri.scheme == "https" && collaborationUri.host != null && collaborationUri.rawUserInfo == null &&
+    collaborationUri.rawQuery == null && collaborationUri.rawFragment == null && collaborationUri.path.orEmpty() in listOf("", "/")) {
+    "collaborationOrigin must be an HTTPS origin, without credentials, path, query or fragment."
+}
+
 android {
     namespace = "in.innovaticshub.notepad"
     compileSdk = 36
@@ -37,6 +46,8 @@ android {
         val devicePreview=providers.gradleProperty("devicePreview").orNull=="true"
         applicationId = if(devicePreview) "in.innovaticshub.notepad.preview" else "in.innovaticshub.notepad"
         manifestPlaceholders["appLabel"]=if(devicePreview) "Notes Preview" else "@string/app_name"
+        manifestPlaceholders["collaborationHost"] = collaborationUri.host
+        buildConfigField("String", "COLLABORATION_ORIGIN", "\"${collaborationOrigin.trimEnd('/')}\"")
         minSdk = 24
         targetSdk = 36
         versionCode = 31
@@ -76,6 +87,7 @@ android {
     }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 

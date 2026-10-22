@@ -17,6 +17,9 @@ import androidx.lifecycle.viewModelScope
 import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationRepository
 import `in`.innovaticshub.notepad.ui.canvas.collab.CollaborationSubscription
 import `in`.innovaticshub.notepad.ui.canvas.collab.RemoteCanvasState
+import `in`.innovaticshub.notepad.ui.canvas.collab.MemberCursor
+import `in`.innovaticshub.notepad.ui.canvas.collab.RoomPresenceState
+import `in`.innovaticshub.notepad.ui.canvas.collab.PeerInkPreview
 import `in`.innovaticshub.notepad.ui.canvas.collab.toLocalStroke
 import `in`.innovaticshub.notepad.ui.canvas.collab.toRemoteStroke
 import `in`.innovaticshub.notepad.ui.canvas.engine.CanvasHistory
@@ -89,6 +92,34 @@ data class DrawingUiState(
 }
 
 class DrawingViewModel(private val collaborationRepository:CollaborationRepository=CollaborationRepository()) : ViewModel() {
+    private val _presence = MutableStateFlow(RoomPresenceState())
+    val presence: StateFlow<RoomPresenceState> = _presence.asStateFlow()
+    private var lastLiveUpdateNanos = 0L
+    private var presenceExpiry: kotlinx.coroutines.Job? = null
+
+    private fun publishLiveStroke(force: Boolean = false) {
+        val state = _uiState.value
+        val room = state.collaborationRoomCode ?: return
+        if (!state.collaborationConnected) return
+        val now = System.nanoTime()
+        if (!force && now - lastLiveUpdateNanos < 120_000_000L) return
+        lastLiveUpdateNanos = now
+        val stroke = currentStroke ?: return
+        val point = stroke.points.lastOrNull() ?: return
+        val activity = when { stroke.toolConfig.isEraser -> "erasing"; stroke.toolConfig.type == ToolType.LASSO -> "selecting"; else -> "drawing" }
+        val preview = if (activity != "drawing") null else {
+            val points = if (stroke.points.size <= 128) stroke.points else (0 until 128).map { stroke.points[it * (stroke.points.size - 1) / 127] }
+            stroke.copy(points = points).toRemoteStroke(collaborationRepository.currentUserId)
+        }
+        collaborationRepository.sendLiveUpdate(room, MemberCursor(point.x, point.y, stroke.pageId), activity, preview)
+    }
+
+    private fun stopLiveStroke(cancelled: Boolean) {
+        _uiState.value.collaborationRoomCode?.let { room ->
+            collaborationRepository.sendLiveUpdate(room, null, "idle", null, sendPreview = cancelled)
+        }
+        lastLiveUpdateNanos = 0
+    }
     private var preferences: DrawingPreferences? = null
     private var appContext:Context?=null
     private val rememberedTools = mutableMapOf<ToolType, ToolConfig>()
@@ -322,6 +353,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
         currentStrokeBuilder?.addPoint(StrokePoint(x, y, pressure,timestamp,tilt,orientation))
         currentStroke = currentStrokeBuilder?.buildPreview()?.copy(pageId=_uiState.value.currentPageId)
         _uiState.update { it.copy(isDrawing = true) }
+        publishLiveStroke(force = true)
     }
 
     fun addStrokePoint(x: Float, y: Float, pressure: Float = 1f, timestamp:Long=System.currentTimeMillis(),tilt:Float=0f,orientation:Float=0f): Stroke? {
@@ -339,6 +371,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
                 currentStroke=rebuildStroke(stroke,points)
             }
         }
+        publishLiveStroke()
         return currentStroke
     }
 
@@ -353,6 +386,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
 
         if (stroke.toolConfig.type == ToolType.LASSO) {
             selectStrokesWithLasso(stroke)
+            stopLiveStroke(cancelled = true)
             currentStrokeBuilder = null
             currentStroke = null
             _uiState.update { it.copy(isDrawing = false) }
@@ -374,12 +408,14 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
 
         applyStrokes(after)
         uploadCollaborativeStroke(stroke)
+        stopLiveStroke(cancelled = false)
         currentStrokeBuilder = null
         currentStroke = null
         _uiState.update { it.copy(isDrawing = false) }
     }
 
     fun cancelStroke() {
+        stopLiveStroke(cancelled = true)
         currentStrokeBuilder = null
         currentStroke = null
         _uiState.update { it.copy(isDrawing = false) }
@@ -613,6 +649,8 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
         strokeListener = null
         appliedRemoteStrokeIds.clear()
         collaborationDirty=false
+        presenceExpiry?.cancel()
+        _presence.value = RoomPresenceState()
         _uiState.update {
             it.copy(
                 collaborationRoomCode = null,
@@ -827,6 +865,14 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
 
     private fun startListeningToRoom(roomCode: String,publishExisting:Boolean=false) {
         strokeListener?.remove()
+        _presence.value = RoomPresenceState()
+        presenceExpiry?.cancel()
+        presenceExpiry = viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(1_000)
+                _presence.update { it.expire(System.currentTimeMillis()) }
+            }
+        }
         appliedRemoteStrokeIds.clear()
         var initialPending=publishExisting
         strokeListener = collaborationRepository.listenToStrokes(
@@ -834,6 +880,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
             onStrokes = { remoteStrokes ->
                 var addedCount = 0
                 remoteStrokes.forEach { remoteStroke ->
+                    _presence.update { state -> state.copy(previews = state.previews.filterValues { it.stroke.id != remoteStroke.id }) }
                     if (remoteStroke.id.isBlank() || !appliedRemoteStrokeIds.add(remoteStroke.id)) {
                         return@forEach
                     }
@@ -883,8 +930,29 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
                 if(initialPending || collaborationDirty) {initialPending=false;collaborationDirty=false;syncCollaborativeCanvasState()}
             },
             onError = { error ->
+                _presence.value = RoomPresenceState()
                 _uiState.update {
                     it.copy(collaborationStatus = error.message ?: "Collaboration sync failed.",collaborationConnected=false,isCollaborationBusy=false)
+                }
+            },
+            onMembers = { members ->
+                val ids = members.map { it.id }.toSet()
+                _presence.update { it.copy(members = members, previews = it.previews.filterKeys { id -> id in ids }) }
+            },
+            onMemberUpdate = { member ->
+                _presence.update { state ->
+                    if (state.members.any { it.id == member.id }) state.copy(members = state.members.map { if (it.id == member.id) member else it })
+                    else state.copy(members = (state.members + member).take(20))
+                }
+            },
+            onPreview = { preview ->
+                if (preview.stroke?.userId != collaborationRepository.currentUserId) {
+                    _presence.update { state ->
+                        val remaining = state.previews - preview.memberId
+                        val stroke = preview.stroke
+                        if (stroke == null || _uiState.value.strokes.any { it.id == stroke.id } || stroke.toolConfig.type in listOf("ERASER", "LASSO")) state.copy(previews = remaining)
+                        else state.copy(previews = (remaining + (preview.memberId to PeerInkPreview(stroke.toLocalStroke()))).entries.take(20).associate { it.toPair() })
+                    }
                 }
             }
         )

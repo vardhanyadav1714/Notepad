@@ -1,0 +1,8 @@
+**
+!collaboration-server/
+!collaboration-server/package.json
+!collaboration-server/package-lock.json
+!collaboration-server/server.mjs
+!cloudflare/
+!cloudflare/src/
+!cloudflare/src/**

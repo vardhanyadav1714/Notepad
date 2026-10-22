@@ -25,10 +25,16 @@ class CollaborationNetworkTest {
         while(!condition() && System.currentTimeMillis()<deadline) Thread.sleep(25)
         assertTrue("Collaboration condition timed out",condition())
     }
-    private class Relay(private val legacyMetadata:Boolean=false):AutoCloseable {
+    internal class Relay(private val legacyMetadata:Boolean=false, private val presence:Boolean=false):AutoCloseable {
         val server=MockWebServer()
         val sockets=ConcurrentHashMap<String,CopyOnWriteArrayList<WebSocket>>()
         val stored=ConcurrentHashMap<String,List<JSONObject>>()
+        val members=ConcurrentHashMap<WebSocket,JSONObject>()
+        private fun roster(room:String) {
+            val list=sockets[room] ?: return
+            val message=JSONObject().put("type","presence").put("members",JSONArray(list.mapNotNull {members[it]})).toString()
+            list.forEach {it.send(message)}
+        }
         val certificate=HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
         val trust=HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         init {
@@ -44,6 +50,26 @@ class CollaborationNetworkTest {
                         }
                         override fun onMessage(socket:WebSocket,text:String) {
                             val message=JSONObject(text)
+                            if(presence) when(message.optString("type")) {
+                                "join" -> {
+                                    val id=java.util.UUID.randomUUID().toString()
+                                    members[socket]=JSONObject().put("id",id).put("userId",message.getString("userId"))
+                                        .put("label","Artist ${id.take(4).uppercase()}").put("colorArgb",0xff2563ebL).put("activity","idle").put("updatedAt",System.currentTimeMillis())
+                                    socket.send(JSONObject().put("type","joined").put("memberId",id).put("capabilities",JSONArray(listOf("presence","stroke_preview"))).toString())
+                                    roster(room);return
+                                }
+                                "presence" -> {
+                                    val member=members[socket] ?: return
+                                    member.put("activity",message.optString("activity","idle")).put("cursor",message.opt("cursor") ?: JSONObject.NULL).put("updatedAt",System.currentTimeMillis())
+                                    val update=JSONObject().put("type","presence_update").put("member",member).toString()
+                                    sockets[room]?.forEach {it.send(update)};return
+                                }
+                                "stroke_preview" -> {
+                                    val member=members[socket] ?: return
+                                    val preview=JSONObject().put("type","stroke_preview").put("memberId",member.getString("id")).put("stroke",message.opt("stroke") ?: JSONObject.NULL).toString()
+                                    sockets[room]?.forEach {it.send(preview)};return
+                                }
+                            }
                             if(legacyMetadata && message.optString("type")=="stroke") {
                                 val stroke=message.getJSONObject("stroke")
                                 stroke.remove("pageId");stroke.getJSONObject("toolConfig").remove("settings")
@@ -58,9 +84,13 @@ class CollaborationNetworkTest {
                                 else->return
                             }
                             sockets[room]?.forEach {it.send(message.toString())}
+                            if(presence && message.optString("type")=="stroke") members[socket]?.let {member->
+                                val clear=JSONObject().put("type","stroke_preview").put("memberId",member.getString("id")).put("stroke",JSONObject.NULL).toString()
+                                sockets[room]?.forEach {it.send(clear)}
+                            }
                         }
-                        override fun onClosing(socket:WebSocket,code:Int,reason:String) {socket.close(code,reason)}
-                        override fun onClosed(socket:WebSocket,code:Int,reason:String) {sockets[room]?.remove(socket)}
+                        override fun onClosing(socket:WebSocket,code:Int,reason:String) {sockets[room]?.remove(socket);members.remove(socket);if(presence) roster(room);socket.close(code,reason)}
+                        override fun onClosed(socket:WebSocket,code:Int,reason:String) {sockets[room]?.remove(socket);members.remove(socket);if(presence) roster(room)}
                     })
                 }
             }
@@ -71,6 +101,32 @@ class CollaborationNetworkTest {
             return CollaborationRepository(server.url("/ws").toString().replace("https:","wss:"),client)
         }
         override fun close() {sockets.values.flatten().forEach {it.close(1000,"Test complete")};server.shutdown()}
+    }
+    @Test fun livePresencePreviewsCancelAndLeaveNeverChangeSavedInk() {
+        Relay(presence=true).use {relay->
+            val a=DrawingViewModel(relay.repository());val b=DrawingViewModel(relay.repository())
+            try {
+                main {a.createCollaborationRoom()};await {a.uiState.value.collaborationConnected}
+                main {b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)}
+                await {a.presence.value.members.size==2 && b.presence.value.members.size==2}
+                assertEquals(1,b.presence.value.members.count {it.isSelf})
+                main {a.startStroke(100f,200f);a.addStrokePoint(250f,300f)}
+                await {b.presence.value.previews.isNotEmpty() && b.presence.value.members.any {!it.isSelf && it.activity=="drawing"}}
+                assertTrue(b.snapshot().strokes.isEmpty())
+                assertFalse(b.uiState.value.canUndo)
+                main {a.endStroke()}
+                await {b.uiState.value.strokes.size==1 && b.presence.value.previews.isEmpty()}
+                main {a.startStroke(300f,400f)};await {b.presence.value.previews.isNotEmpty()}
+                main {a.cancelStroke()};await {b.presence.value.previews.isEmpty()}
+                assertEquals(1,b.snapshot().strokes.size)
+                main {a.startStroke(350f,450f)};await {b.presence.value.previews.isNotEmpty()}
+                await {b.presence.value.previews.isEmpty() && b.presence.value.members.none {!it.isSelf && it.activity=="drawing"}}
+                assertEquals(1,b.snapshot().strokes.size)
+                main {a.cancelStroke();b.leaveCollaborationRoom()}
+                await {a.presence.value.members.size==1}
+                assertTrue(b.presence.value.members.isEmpty())
+            } finally {main {a.leaveCollaborationRoom();b.leaveCollaborationRoom()}}
+        }
     }
     @Test fun legacyRelayWithoutStylusMetadataProducesInkThatCanBeSavedAndReopened() {
         Relay(legacyMetadata=true).use {relay->
