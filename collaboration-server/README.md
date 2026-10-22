@@ -4,6 +4,8 @@ This optional service runs the **same room protocol as `cloudflare/src/index.ts`
 
 The Android default still points to `https://drawly.smartattendance.xyz`. No remote deployment, DNS changes or changes to another Coolify application are performed by these files.
 
+Deployment status on 22 October 2026: the separate Coolify application is healthy and passed paired-client and restart-persistence checks using a direct server hostname override. Public DNS and trusted TLS are still pending GoDaddy access. See [the deployment record](../docs/drawly-domain-setup.md) for the completed checks and remaining rollout requirements.
+
 ## Local checks
 
 ```powershell
