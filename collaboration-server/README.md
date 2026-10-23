@@ -2,9 +2,9 @@
 
 This optional service runs the **same room protocol as `cloudflare/src/index.ts`** on Node 24 with SQLite persistence. It adds anonymous round member avatars, activity/cursor updates and temporary live ink previews. Existing `join`, `stroke`, `canvas_state` and `room_snapshot` messages remain supported.
 
-The Android default still points to `https://drawly.smartattendance.xyz`. No remote deployment, DNS changes or changes to another Coolify application are performed by these files.
+The Android default still points to `https://drawly.smartattendance.xyz`. Explicit new-domain builds use `tools/build-drawly-in.ps1` to select `https://drawly.in` and version 2.4.2 (32), without changing that legacy default or existing installed apps.
 
-Deployment status on 22 October 2026: the separate Coolify application is healthy and passed paired-client and restart-persistence checks using a direct server hostname override. Public DNS and trusted TLS are still pending GoDaddy access. See [the deployment record](../docs/drawly-domain-setup.md) for the completed checks and remaining rollout requirements.
+Deployment status on 23 October 2026: the separate Coolify application is healthy, public DNS and trusted HTTPS work, and real public WSS checks passed membership, drawing activity, live ink previews, committed ink and rejoin. The new-domain Android preview passed 73 applicable device tests and paired against an independent public peer through its actual UI. The legacy Worker and shared proxy configuration were not changed. See [the deployment record](../docs/drawly-domain-setup.md) for evidence boundaries, build commands and remaining release requirements.
 
 ## Local checks
 
@@ -31,6 +31,15 @@ The owner selected `https://drawly.in` on 22 October 2026. It is now the Compose
 The service rejects cross-origin browser WebSockets; the Android client does not send an Origin header. Use the configured origin for browser tests.
 
 ## Staging Android build
+
+Use the dedicated helper from the repository root for reproducible new-domain artifacts:
+
+```powershell
+.\tools\build-drawly-in.ps1 -Preview
+.\tools\build-drawly-in.ps1
+```
+
+The first command produces a preview package installed alongside production. The second checks and builds the signed production APK and App Bundle using existing local signing credentials. Both explicitly select `https://drawly.in`, version 2.4.2 / code 32, and copy named artifacts and SHA256 metadata into `app/build/outputs/drawly-in/`. Neither command uploads to Play. Use a higher `-VersionCode` and appropriate `-VersionName` for later releases. Ordinary builds without these properties keep the legacy defaults.
 
 From the repository root, using the Android Studio JDK:
 

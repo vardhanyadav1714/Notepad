@@ -32,6 +32,10 @@ tasks.matching { it.name == "preReleaseBuild" }.configureEach { dependsOn(verify
 
 // Staging/Hetzner builds can select an origin without changing the live default.
 val collaborationOrigin = providers.gradleProperty("collaborationOrigin").orNull ?: "https://drawly.smartattendance.xyz"
+// Explicit new-domain builds can advance independently of the legacy defaults.
+val drawlyVersionCode = providers.gradleProperty("drawlyVersionCode").orNull?.toInt() ?: 31
+val drawlyVersionName = providers.gradleProperty("drawlyVersionName").orNull ?: "2.4.1"
+require(drawlyVersionCode > 0 && drawlyVersionName.isNotBlank()) { "Supply a positive version code and non-empty version name." }
 val collaborationUri = URI(collaborationOrigin)
 require(collaborationUri.scheme == "https" && collaborationUri.host != null && collaborationUri.rawUserInfo == null &&
     collaborationUri.rawQuery == null && collaborationUri.rawFragment == null && collaborationUri.path.orEmpty() in listOf("", "/")) {
@@ -50,8 +54,8 @@ android {
         buildConfigField("String", "COLLABORATION_ORIGIN", "\"${collaborationOrigin.trimEnd('/')}\"")
         minSdk = 24
         targetSdk = 36
-        versionCode = 31
-        versionName = "2.4.1"
+        versionCode = drawlyVersionCode
+        versionName = drawlyVersionName
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
