@@ -24,16 +24,17 @@ services:
       DRAWLY_REPORT_TO: '${DRAWLY_REPORT_TO:-}'
     expose:
       - '3000'
-    # Coolify 4.5 generates stable router IDs from the resource UUID and the
-    # service-name hash. Override this UUID when moving to a different resource.
+    # Production-resource labels: Coolify escapes variables in label names.
+    # IDs are verified for this Drawly resource and the stable service-name hash.
+    # Change ALL six IDs before reusing this file for another Coolify resource.
     # These labels affect Drawly only; the shared proxy stays untouched.
     labels:
-      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.accesslogs=false'
-      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.accesslogs=false'
-      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.metrics=false'
-      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.metrics=false'
-      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.tracing=false'
-      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.tracing=false'
+      - 'traefik.http.routers.http-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.accesslogs=false'
+      - 'traefik.http.routers.https-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.accesslogs=false'
+      - 'traefik.http.routers.http-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.metrics=false'
+      - 'traefik.http.routers.https-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.metrics=false'
+      - 'traefik.http.routers.http-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.tracing=false'
+      - 'traefik.http.routers.https-0-jwnlsnxflt0txdz3skf3b5by-collaboration-11a7.observability.tracing=false'
     logging:
       driver: local
       options:
