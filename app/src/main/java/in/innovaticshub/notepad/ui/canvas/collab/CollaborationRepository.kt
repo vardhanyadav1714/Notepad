@@ -10,6 +10,8 @@ import okhttp3.Request
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.MediaType.Companion.toMediaType
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -21,8 +23,36 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 class CollaborationRepository(
     private val websocketBaseUrl:String=CollaborationEndpoint.websocketUrl,
-    private val client:WebSocket.Factory=OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).retryOnConnectionFailure(true).build()
+    private val client:WebSocket.Factory=OkHttpClient.Builder().pingInterval(25,TimeUnit.SECONDS).retryOnConnectionFailure(true).build(),
+    private val managedRooms:Boolean = websocketBaseUrl == CollaborationEndpoint.websocketUrl && CollaborationEndpoint.host == "drawly.in"
 ) {
+    private val http = (client as? OkHttpClient)?.newBuilder()?.callTimeout(15, TimeUnit.SECONDS)?.build()
+        ?: OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build()
+    private var safety: SharingSafetyStore? = null
+    private val apiOrigin = websocketBaseUrl.removeSuffix("/ws").replaceFirst("wss:", "https:").replaceFirst("ws:", "http:")
+    fun initializeSafety(context: android.content.Context) { safety = SharingSafetyStore(context) }
+    fun canEndRoom(room: String) = safety?.ownerToken(normalizeRoomCode(room)) != null
+    fun isBlocked(room: String) = safety?.isBlocked(normalizeRoomCode(room)) == true
+    suspend fun blockRoom(room: String) = withContext(Dispatchers.IO) { safety?.block(normalizeRoomCode(room)) ?: error("Sharing controls unavailable") }
+    private fun api(request: Request): JSONObject = http.newCall(request).execute().use { response ->
+        check(response.isSuccessful) { when(response.code) { 410 -> "This room has ended or expired."; 429 -> "Please wait before trying again."; else -> "Could not complete the request. Please retry." } }
+        JSONObject(response.body?.string() ?: "{}")
+    }
+    private fun requireSharingAvailable() {
+        check(api(Request.Builder().url("$apiOrigin/api/config").build()).optBoolean("sharingAvailable", false)) {
+            "Sharing is not available yet. You can keep drawing offline."
+        }
+    }
+    suspend fun reportRoom(room: String, reason: String): String = withContext(Dispatchers.IO) {
+        api(Request.Builder().url("$apiOrigin/api/rooms/${normalizeRoomCode(room).urlEncoded()}/reports")
+            .post(JSONObject().put("reason", reason).toString().toRequestBody("application/json".toMediaType())).build()).getString("reportId")
+    }
+    suspend fun endRoom(room: String) = withContext(Dispatchers.IO) {
+        val normalized = normalizeRoomCode(room)
+        val token = safety?.ownerToken(normalized) ?: error("Only the room creator on this device can end it.")
+        api(Request.Builder().url("$apiOrigin/api/rooms/${normalized.urlEncoded()}").header("Authorization", "Bearer $token").delete().build())
+        safety?.forgetOwner(normalized)
+    }
     private val roomRandom = SecureRandom()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val socketLock = Any()
@@ -39,7 +69,7 @@ class CollaborationRepository(
     /** Best effort only: never queue cursors or unfinished ink while offline. */
     fun sendLiveUpdate(roomCode: String, cursor: MemberCursor?, activity: String, preview: RemoteStroke?, sendPreview: Boolean = true) {
         synchronized(socketLock) {
-            if (!socketOpen || !liveUpdatesSupported || activeRoomCode != normalizeRoomCode(roomCode)) return
+            if (safety?.enabled == false || !socketOpen || !liveUpdatesSupported || activeRoomCode != normalizeRoomCode(roomCode)) return
             val socket = webSocket ?: return
             // A slow peer must not allow ephemeral packets to delay saved ink.
             if (socket.queueSize() > 128_000) return
@@ -50,6 +80,16 @@ class CollaborationRepository(
     }
 
     suspend fun createRoom(): String {
+        if (managedRooms) return withContext(Dispatchers.IO) {
+            requireSharingAvailable()
+            val result = api(Request.Builder().url("$apiOrigin/api/rooms").post(ByteArray(0).toRequestBody()).build())
+            val room = result.getString("roomId")
+            check(room.matches(Regex("r-[a-f0-9]{48}"))) { "Room response not recognized." }
+            val token = result.getString("ownerToken")
+            check(token.matches(Regex("[a-f0-9]{64}"))) { "Room authorization not recognized." }
+            checkNotNull(safety) { "Sharing controls unavailable" }.saveOwner(room, token)
+            room
+        }
         val bytes = ByteArray(8)
         roomRandom.nextBytes(bytes)
         return bytes.joinToString(separator = "") { byte ->
@@ -58,10 +98,16 @@ class CollaborationRepository(
     }
 
     suspend fun joinRoom(roomCode: String): String {
-        return normalizeRoomCode(roomCode).also {require(it.isNotBlank() && it.length<=128) {"Enter a valid room code or invite link."}}
+        val room = normalizeRoomCode(roomCode).also {
+            require(it.matches(Regex("[a-zA-Z0-9_-]{1,128}"))) {"Enter a valid room code or invite link."}
+            check(!isBlocked(it)) { "This room is blocked on this device." }
+        }
+        if (managedRooms) withContext(Dispatchers.IO) { requireSharingAvailable() }
+        return room
     }
 
     suspend fun uploadStroke(roomCode: String, stroke: RemoteStroke) {
+        check(safety?.enabled != false) { "Sharing is disabled on this device." }
         if (stroke.id.isBlank() || roomCode.isBlank()) return
         val message = JSONObject()
             .put("type", "stroke")
@@ -85,6 +131,7 @@ class CollaborationRepository(
     }
 
     suspend fun uploadCanvasState(roomCode: String, state: RemoteCanvasState) {
+        check(safety?.enabled != false) { "Sharing is disabled on this device." }
         if (roomCode.isBlank()) return
         val message = JSONObject()
             .put("type", "canvas_state")
@@ -130,7 +177,7 @@ class CollaborationRepository(
             activeRoomCode = normalized
             listenerGeneration
         }
-        fun valid()=synchronized(socketLock) {!closedByUser.get() && listenerGeneration==generation && activeRoomCode==normalized}
+        fun valid()=synchronized(socketLock) {safety?.enabled != false && !closedByUser.get() && listenerGeneration==generation && activeRoomCode==normalized}
 
         fun connect(): WebSocket {
             val request = Request.Builder()
@@ -190,7 +237,7 @@ class CollaborationRepository(
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             socketOpen = false
                         }
-                        valid() && response?.code != 429 && this@CollaborationRepository.webSocket==webSocket
+                        valid() && response?.code !in listOf(400, 401, 403, 404, 410, 429) && this@CollaborationRepository.webSocket==webSocket
                     }
 
                     if (shouldReconnect) {
@@ -221,7 +268,7 @@ class CollaborationRepository(
                             this@CollaborationRepository.webSocket = null
                             socketOpen = false
                         }
-                        valid() && current && code != 1000
+                        valid() && current && code !in listOf(1000, 1008)
                     }
                     scope.launch(Dispatchers.Main) {if(valid()) onError(IllegalStateException(if(shouldReconnect) "Connection interrupted. Reconnecting..." else "Connection closed. Tap Reconnect to join again."))}
 

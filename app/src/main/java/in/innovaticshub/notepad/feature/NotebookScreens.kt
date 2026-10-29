@@ -146,6 +146,7 @@ fun TrashScreen(container: AppContainer, onBack: () -> Unit) {
 
 @Composable
 fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
+    val activityContext = androidx.compose.ui.platform.LocalContext.current
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val snackbar = remember { SnackbarHostState() }
     val settings = container.settingsRepository
@@ -156,6 +157,9 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
     var choosing by remember {mutableStateOf<String?>(null)}
     val inkPreferences=remember {`in`.innovaticshub.notepad.ui.canvas.storage.DrawingPreferences(container.appContext)}
     var fingerDrawing by remember {mutableStateOf(inkPreferences.fingerDrawing)}
+    val sharingSafety = remember { `in`.innovaticshub.notepad.ui.canvas.collab.SharingSafetyStore(container.appContext) }
+    var sharingEnabled by remember { mutableStateOf(sharingSafety.enabled) }
+    var sharingApproval by remember { mutableStateOf(false) }
     val version=remember {container.appContext.packageManager.getPackageInfo(container.appContext.packageName,0).versionName.orEmpty()}
     fun openLink(uri: String) {
         runCatching { uriHandler.openUri(uri) }.onFailure {
@@ -180,19 +184,43 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit) {
                     Switch(fingerDrawing,{fingerDrawing=it;inkPreferences.fingerDrawing=it})
                 }
             }
+            SettingsGroup("Family sharing controls") {
+                SettingsRow("Sharing", if(sharingEnabled) "Enabled; adult approval is still required for each session" else "Off; notes and drawing stay available") {
+                    if(sharingEnabled) scope.launch {
+                        runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { sharingSafety.setEnabled(false) } }
+                            .onSuccess { sharingEnabled = false }
+                            .onFailure { snackbar.showSnackbar("Could not save the sharing setting. Please retry.") }
+                    } else sharingApproval = true
+                }
+                SettingsRow("Reset family PIN", "Requires this device's screen lock or biometrics; sharing will turn off") {
+                    val activity = activityContext as? androidx.fragment.app.FragmentActivity
+                    val lock = `in`.innovaticshub.notepad.feature.lock.NoteLockController(activityContext)
+                    if (activity == null || !lock.canAuthenticate()) scope.launch { snackbar.showSnackbar("Set up the adult's device screen lock first.") }
+                    else lock.authenticate(activity, "Reset family PIN", "Sharing will turn off. Your notes will be kept.", {
+                        scope.launch {
+                            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { sharingSafety.resetPin() } }
+                                .onSuccess { sharingEnabled=false; snackbar.showSnackbar("Family PIN reset. Sharing is off.") }
+                                .onFailure { snackbar.showSnackbar("Could not reset the PIN. Please retry.") }
+                        }
+                    }, { message -> scope.launch { snackbar.showSnackbar(message) } })
+                }
+                Text("An adult sets a private sharing PIN. Invite links and saved rooms never connect automatically. Leaving the canvas or backgrounding the app pauses sharing.", Modifier.padding(horizontal=20.dp,vertical=8.dp), style=MaterialTheme.typography.bodySmall)
+            }
             SettingsGroup("About") {
                 SettingsRow("Drawly","Version $version") {choosing="About Drawly"}
                 HorizontalDivider(Modifier.padding(horizontal=20.dp))
                 SettingsRow("Privacy policy", "Read how Drawly handles your data") {
-                    openLink("https://www.freeprivacypolicy.com/live/286e718d-0906-4361-a68b-3292405405f8")
+                    openLink(`in`.innovaticshub.notepad.BuildConfig.PRIVACY_POLICY_URL)
                 }
                 HorizontalDivider(Modifier.padding(horizontal=20.dp))
-                SettingsRow("Contact support", "vardhan.yadav.1714@gmail.com") {
-                    openLink("mailto:vardhan.yadav.1714@gmail.com")
+                SettingsRow("Contact support", "support@drawly.in") {
+                    openLink("mailto:support@drawly.in")
                 }
             }
         }
     }
+    if (sharingApproval) `in`.innovaticshub.notepad.ui.canvas.screens.SharingApprovalDialog(
+        onDismiss={sharingApproval=false},onApproved={sharingApproval=false;sharingEnabled=true})
     choosing?.let {section->AlertDialog(onDismissRequest={choosing=null},title={Text(section)},text={Column {
         when(section) {
             "Theme"->ThemeMode.entries.forEach {option->SettingChoice(when(option) {ThemeMode.SYSTEM->"Use system settings";ThemeMode.LIGHT->"Light";ThemeMode.DARK->"Dark"},theme==option) {scope.launch {settings.setThemeMode(option)};choosing=null}}

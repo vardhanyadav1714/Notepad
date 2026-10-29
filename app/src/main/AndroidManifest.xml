@@ -19,6 +19,12 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Notepad"
         tools:targetApi="31">
+        <!-- Initialize only after the optional handwriting SDK disclosure and
+             adult approval, rather than on every child's app launch. -->
+        <provider
+            android:name="com.google.mlkit.common.internal.MlKitInitProvider"
+            android:authorities="${applicationId}.mlkitinitprovider"
+            tools:node="remove" />
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.files"

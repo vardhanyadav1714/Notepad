@@ -86,7 +86,7 @@ fun CanvasWorkspace(container: AppContainer, isDark: Boolean, roomCode: String? 
         }.onFailure { error = "Couldn’t open this drawing. Please go back and try again." }
     }
     LaunchedEffect(ready, roomCode) {
-        if (ready) (roomCode ?: initialDrawing?.collabRoom ?: drawing.uiState.value.collaborationRoomCode)?.let {drawing.joinCollaborationRoom(it)}
+        if (ready) (roomCode ?: initialDrawing?.collabRoom)?.let { drawing.offerCollaborationInvite(it) }
     }
     LaunchedEffect(ready,title) {if(ready && title!=null) drawing.setDocumentTitle(title)}
     LaunchedEffect(ready) {
@@ -97,10 +97,14 @@ fun CanvasWorkspace(container: AppContainer, isDark: Boolean, roomCode: String? 
     }
     DisposableEffect(owner, ready) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP && ready) container.applicationScope.launch { runCatching { persist() } }
+            if (event == Lifecycle.Event.ON_STOP && ready) {
+                drawing.pauseCollaboration()
+                container.applicationScope.launch { runCatching { persist() } }
+            }
         }
         owner.lifecycle.addObserver(observer)
         onDispose {
+            if (ready) drawing.pauseCollaboration()
             owner.lifecycle.removeObserver(observer)
             if (ready) container.applicationScope.launch { runCatching { persist() } }
         }

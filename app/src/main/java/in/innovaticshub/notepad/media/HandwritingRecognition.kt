@@ -7,9 +7,17 @@ import `in`.innovaticshub.notepad.ui.canvas.model.Stroke
 import `in`.innovaticshub.notepad.ui.canvas.model.ToolType
 import kotlinx.coroutines.tasks.await
 
-/** Handwriting stays on-device; only the selected language model is downloaded. */
+/** Ink stays on-device. Model downloads and SDK diagnostics use Google's network services. */
 object HandwritingRecognition {
+    @Volatile private var initialized = false
+    @Synchronized fun initializeAfterApproval(context: android.content.Context) {
+        if (!initialized) {
+            com.google.mlkit.common.MlKit.initialize(context.applicationContext)
+            initialized = true
+        }
+    }
     private fun model(language:String):DigitalInkRecognitionModel {
+        check(initialized) { "An adult must approve handwriting recognition before the SDK starts." }
         val identifier=DigitalInkRecognitionModelIdentifier.fromLanguageTag(language)
             ?: error("No handwriting model is available for this language")
         return DigitalInkRecognitionModel.builder(identifier).build()

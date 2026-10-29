@@ -54,6 +54,7 @@ data class DrawingUiState(
     val collaborationStatus: String? = null,
     val isCollaborationBusy: Boolean = false,
     val collaborationConnected:Boolean=false,
+    val sharingApproved:Boolean=false,
     val fingerDrawing: Boolean = true,
     val autoShape: Boolean = false,
     val selectionShape: SelectionShape = SelectionShape.LASSO,
@@ -92,6 +93,53 @@ data class DrawingUiState(
 }
 
 class DrawingViewModel(private val collaborationRepository:CollaborationRepository=CollaborationRepository()) : ViewModel() {
+    private var collaborationJob: kotlinx.coroutines.Job? = null
+    private var sharingSafety: `in`.innovaticshub.notepad.ui.canvas.collab.SharingSafetyStore? = null
+    /** Called by the parental approval UI after successful PIN verification. */
+    fun approveSharingForSession() { _uiState.update { it.copy(sharingApproved = true) } }
+    fun pauseCollaboration() {
+        val room = _uiState.value.collaborationRoomCode
+        leaveCollaborationRoom()
+        _uiState.update { it.copy(collaborationRoomCode = room, collaborationStatus = "Sharing paused. Ask an adult to approve reconnecting.") }
+    }
+    private fun sharingAllowed(): Boolean {
+        val allowed = _uiState.value.sharingApproved && (sharingSafety?.enabled != false)
+        if (!allowed) _uiState.update { it.copy(collaborationStatus = "Ask an adult to approve sharing first.") }
+        return allowed
+    }
+    fun offerCollaborationInvite(room: String) {
+        if (_uiState.value.collaborationRoomCode != room) pauseCollaboration()
+        _uiState.update { it.copy(collaborationRoomCode = room, collaborationStatus = "Invite ready. Ask an adult to approve joining from Collaboration.") }
+    }
+    fun canEndCollaboration() = _uiState.value.collaborationRoomCode?.let(collaborationRepository::canEndRoom) == true
+    fun endCollaborationRoom() {
+        val room = _uiState.value.collaborationRoomCode ?: return
+        if (!sharingAllowed()) return
+        viewModelScope.launch {
+            runCatching { collaborationRepository.endRoom(room) }.onSuccess { leaveCollaborationRoom() }
+                .onFailure { error -> _uiState.update { it.copy(collaborationStatus = error.message) } }
+        }
+    }
+    fun blockCollaborationRoom() {
+        val room = _uiState.value.collaborationRoomCode ?: return
+        leaveCollaborationRoom()
+        viewModelScope.launch {
+            runCatching { collaborationRepository.blockRoom(room) }.onSuccess {
+                _uiState.update { it.copy(collaborationStatus = "Room blocked on this device. Invites to it cannot reconnect.") }
+            }.onFailure { error -> _uiState.update { it.copy(collaborationStatus = error.message) } }
+        }
+    }
+    fun reportCollaborationRoom(reason: String) {
+        val room = _uiState.value.collaborationRoomCode ?: return
+        // A child can report or stop sharing without a PIN. No message or email
+        // address is requested, and a report is acknowledged only after storage.
+        pauseCollaboration()
+        viewModelScope.launch {
+            runCatching { collaborationRepository.reportRoom(room, reason) }.onSuccess { report ->
+                _uiState.update { it.copy(collaborationStatus = "Report saved: $report. Sharing is paused. Ask an adult for help.") }
+            }.onFailure { _uiState.update { it.copy(collaborationStatus = "Report was not saved. Sharing is paused; retry or ask an adult to contact support.") } }
+        }
+    }
     private val _presence = MutableStateFlow(RoomPresenceState())
     val presence: StateFlow<RoomPresenceState> = _presence.asStateFlow()
     private var lastLiveUpdateNanos = 0L
@@ -127,6 +175,8 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
     private fun penKey(tool:ToolConfig) = "${tool.type}:${tool.style}"
 
     fun loadPreferences(context: Context) {
+        sharingSafety = `in`.innovaticshub.notepad.ui.canvas.collab.SharingSafetyStore(context)
+        collaborationRepository.initializeSafety(context)
         appContext=context.applicationContext
         preferences = DrawingPreferences(context).also { store ->
             rememberedTools.putAll(store.rememberedTools())
@@ -589,11 +639,13 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
     }
 
     fun createCollaborationRoom() {
+        if (!sharingAllowed()) return
         if (_uiState.value.isCollaborationBusy) return
-        viewModelScope.launch {
+        collaborationJob = viewModelScope.launch {
             setCollaborationBusy("Creating room...")
             runCatching {
                 val roomCode = collaborationRepository.createRoom()
+                check(sharingAllowed()) { "Sharing approval ended." }
                 collaborationDirty=false
                 _uiState.update {it.copy(collaborationRoomCode=roomCode,collaborationConnected=false)}
                 startListeningToRoom(roomCode,publishExisting=true)
@@ -617,11 +669,13 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
     }
 
     fun joinCollaborationRoom(roomCode: String) {
+        if (!sharingAllowed()) return
         if (_uiState.value.isCollaborationBusy) return
-        viewModelScope.launch {
+        collaborationJob = viewModelScope.launch {
             setCollaborationBusy("Joining room...")
             runCatching {
                 val joinedRoomCode = collaborationRepository.joinRoom(roomCode)
+                check(sharingAllowed()) { "Sharing approval ended." }
                 if(_uiState.value.collaborationRoomCode!=joinedRoomCode) collaborationDirty=false
                 _uiState.update {it.copy(collaborationRoomCode=joinedRoomCode,collaborationConnected=false)}
                 startListeningToRoom(joinedRoomCode)
@@ -645,6 +699,8 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
     }
 
     fun leaveCollaborationRoom() {
+        collaborationJob?.cancel()
+        collaborationJob = null
         strokeListener?.remove()
         strokeListener = null
         appliedRemoteStrokeIds.clear()
@@ -655,6 +711,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
             it.copy(
                 collaborationRoomCode = null,
                 collaborationConnected=false,
+                sharingApproved=false,
                 collaborationStatus = "Left collaboration room.",
                 isCollaborationBusy = false
             )
@@ -864,6 +921,7 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
     }
 
     private fun startListeningToRoom(roomCode: String,publishExisting:Boolean=false) {
+        if (!sharingAllowed()) return
         strokeListener?.remove()
         _presence.value = RoomPresenceState()
         presenceExpiry?.cancel()

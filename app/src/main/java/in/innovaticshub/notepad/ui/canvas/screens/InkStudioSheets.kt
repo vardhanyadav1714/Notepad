@@ -142,6 +142,9 @@ internal fun InkColourSheet(color:Color,onPicked:(Color)->Unit) {
 @Composable
 internal fun HandwritingSheet(strokes:List<Stroke>,onSave:suspend (String)->Unit) {
     val scope=rememberCoroutineScope()
+    val context=androidx.compose.ui.platform.LocalContext.current
+    var sdkApproved by remember { mutableStateOf(false) }
+    var approvalDialog by remember { mutableStateOf(false) }
     val clipboard=LocalClipboardManager.current
     var language by remember { mutableStateOf("en-US") }
     var available by remember { mutableStateOf(false) }
@@ -149,7 +152,7 @@ internal fun HandwritingSheet(strokes:List<Stroke>,onSave:suspend (String)->Unit
     var status by remember { mutableStateOf<String?>(null) }
     var candidates by remember { mutableStateOf(emptyList<String>()) }
     var result by remember { mutableStateOf("") }
-    LaunchedEffect(language) { available=runCatching { HandwritingRecognition.downloaded(language) }.getOrDefault(false); candidates=emptyList(); result="" }
+    LaunchedEffect(language,sdkApproved) { available=if(sdkApproved) runCatching { HandwritingRecognition.downloaded(language) }.getOrDefault(false) else false; candidates=emptyList(); result="" }
     Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp).padding(bottom=32.dp),verticalArrangement=Arrangement.spacedBy(16.dp)) {
         Text("Handwriting to text",style=MaterialTheme.typography.headlineMedium)
         Text("Select handwriting with the lasso to convert a section, or convert the current page. Your original ink is kept.",style=MaterialTheme.typography.bodyMedium)
@@ -159,7 +162,7 @@ internal fun HandwritingSheet(strokes:List<Stroke>,onSave:suspend (String)->Unit
             }
         }
         if(!available) Text("Download the selected language once (about 20 MB). Recognition then works on this device without uploading your handwriting.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-        Button(enabled=!busy && strokes.isNotEmpty(),onClick={scope.launch {
+        Button(enabled=!busy && strokes.isNotEmpty(),onClick={if(!sdkApproved) approvalDialog=true else scope.launch {
             busy=true; status=if(available) "Reading your handwriting…" else "Downloading language model…"
             try {
                 if(!available) { HandwritingRecognition.download(language); available=true; status="Reading your handwriting…" }
@@ -184,6 +187,14 @@ internal fun HandwritingSheet(strokes:List<Stroke>,onSave:suspend (String)->Unit
             }
         }
     }
+    if(approvalDialog) SharingApprovalDialog(forRecognition=true,onDismiss={approvalDialog=false},onApproved={
+        approvalDialog=false
+        scope.launch {
+            runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { HandwritingRecognition.initializeAfterApproval(context) } }
+                .onSuccess { sdkApproved=true;status="Recognition approved. Tap Download and convert to continue." }
+                .onFailure {status="Could not start handwriting recognition. Your ink is preserved."}
+        }
+    })
 }
 
 internal fun ToolType.label():String=when(this) { ToolType.PEN->"Pen";ToolType.PENCIL->"Pencil";ToolType.MARKER->"Marker";ToolType.HIGHLIGHTER->"Highlight";ToolType.BRUSH->"Brush";ToolType.CALLIGRAPHY->"Calligraphy";ToolType.ERASER->"Eraser";ToolType.LASSO->"Select";ToolType.SHAPE->"Shapes";ToolType.TEXT->"Text" }

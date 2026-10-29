@@ -52,6 +52,7 @@ android {
         manifestPlaceholders["appLabel"]=if(devicePreview) "Notes Preview" else "@string/app_name"
         manifestPlaceholders["collaborationHost"] = collaborationUri.host
         buildConfigField("String", "COLLABORATION_ORIGIN", "\"${collaborationOrigin.trimEnd('/')}\"")
+        buildConfigField("String", "PRIVACY_POLICY_URL", "\"${if(collaborationUri.host == "drawly.in") "https://drawly.in/privacy" else "https://www.freeprivacypolicy.com/live/286e718d-0906-4361-a68b-3292405405f8"}\"")
         minSdk = 24
         targetSdk = 36
         versionCode = drawlyVersionCode

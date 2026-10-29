@@ -41,3 +41,5 @@ build-ui-*.log
 /collaboration-server/data/
 **/.coolify-access.env
 **/.godaddy-access.env
+**/.resend-access.env
+**/.b2-backup.env

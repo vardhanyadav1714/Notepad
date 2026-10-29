@@ -104,7 +104,7 @@ class CollaborationNetworkTest {
     }
     @Test fun livePresencePreviewsCancelAndLeaveNeverChangeSavedInk() {
         Relay(presence=true).use {relay->
-            val a=DrawingViewModel(relay.repository());val b=DrawingViewModel(relay.repository())
+            val a=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() };val b=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
             try {
                 main {a.createCollaborationRoom()};await {a.uiState.value.collaborationConnected}
                 main {b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)}
@@ -130,7 +130,7 @@ class CollaborationNetworkTest {
     }
     @Test fun legacyRelayWithoutStylusMetadataProducesInkThatCanBeSavedAndReopened() {
         Relay(legacyMetadata=true).use {relay->
-            val a=DrawingViewModel(relay.repository());val b=DrawingViewModel(relay.repository())
+            val a=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() };val b=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
             try {
                 main {a.createCollaborationRoom()};await {a.uiState.value.collaborationConnected}
                 main {b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)}
@@ -143,7 +143,7 @@ class CollaborationNetworkTest {
                 val restored=storage.decodeSession(storage.encodeSession(b.uiState.value.savedSession()))
                 assertEquals(received.id,restored.strokes.single().id)
                 assertEquals(received.points,restored.strokes.single().points)
-                main {b.leaveCollaborationRoom();b.restoreSession(restored);b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)}
+                main {b.leaveCollaborationRoom();b.restoreSession(restored);b.approveSharingForSession();b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)}
                 await {b.uiState.value.collaborationConnected}
                 // Ensure the replay has arrived, rather than asserting before the snapshot.
                 main {a.startStroke(400f,500f);a.addStrokePoint(500f,500f);a.endStroke()}
@@ -154,7 +154,7 @@ class CollaborationNetworkTest {
     }
     @Test fun twoClientsShareExistingInkNewPagesTransformsEraserUndoAndReconnect() {
         Relay().use {relay->
-            val a=DrawingViewModel(relay.repository());val b=DrawingViewModel(relay.repository())
+            val a=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() };val b=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
             try {
                 main {a.startStroke(100f,200f,0.3f);a.addStrokePoint(300f,200f,0.9f);a.endStroke();a.createCollaborationRoom()}
                 await {a.uiState.value.collaborationConnected && relay.stored[a.uiState.value.collaborationRoomCode]?.size==1}
@@ -197,7 +197,7 @@ class CollaborationNetworkTest {
     }
     @Test fun undoDoesNotDiscardAnotherParticipantsInk() {
         Relay().use {relay->
-            val a=DrawingViewModel(relay.repository());val b=DrawingViewModel(relay.repository())
+            val a=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() };val b=DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
             try {
                 main {a.createCollaborationRoom()};await {a.uiState.value.collaborationConnected}
                 main {b.joinCollaborationRoom(a.uiState.value.collaborationRoomCode!!)};await {b.uiState.value.collaborationConnected}

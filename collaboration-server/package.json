@@ -6,7 +6,8 @@
   "scripts": {
     "build": "esbuild ../cloudflare/src/index.ts --format=esm --platform=node --target=node24 --outfile=dist/protocol.mjs",
     "start": "node server.mjs",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "benchmark": "npm run build && node benchmark/run.mjs"
   },
   "dependencies": { "ws": "8.22.0" },
   "devDependencies": { "esbuild": "0.28.2" }

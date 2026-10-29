@@ -29,8 +29,8 @@ class CollaborationPresenceUiTest {
 
     @Test fun artistsAppearInHeaderAndRoomSheetInLightAndDarkThemes() {
         CollaborationNetworkTest.Relay(presence = true).use { relay ->
-            val model = DrawingViewModel(relay.repository())
-            val peer = DrawingViewModel(relay.repository())
+            val model = DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
+            val peer = DrawingViewModel(relay.repository()).also { it.approveSharingForSession() }
             val dark = mutableStateOf(false)
             try {
                 main { model.createCollaborationRoom() }

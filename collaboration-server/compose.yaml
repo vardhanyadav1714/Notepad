@@ -7,10 +7,38 @@ services:
     restart: unless-stopped
     environment:
       PORT: '3000'
+      NODE_OPTIONS: '--max-old-space-size=192'
       PUBLIC_ORIGIN: '${DRAWLY_COLLAB_ORIGIN:-https://drawly.in}'
       DATABASE_PATH: /data/rooms.sqlite
+      # The service is reachable only through the trusted Coolify proxy.
+      TRUST_PROXY: '1'
+      # Set only after reviewing the public policy, moderation and actual
+      # infrastructure retention. Empty retention values keep new sharing off.
+      DRAWLY_LEGAL_APPROVED: '${DRAWLY_LEGAL_APPROVED:-0}'
+      DRAWLY_DEVELOPER_NAME: '${DRAWLY_DEVELOPER_NAME:-Innovatix Hub}'
+      DRAWLY_SUPPORT_EMAIL: '${DRAWLY_SUPPORT_EMAIL:-}'
+      DRAWLY_BACKUP_RETENTION_DAYS: '${DRAWLY_BACKUP_RETENTION_DAYS:-}'
+      DRAWLY_LOG_RETENTION_DAYS: '${DRAWLY_LOG_RETENTION_DAYS:-}'
+      RESEND_API_KEY: '${RESEND_API_KEY:-}'
+      DRAWLY_REPORT_FROM: '${DRAWLY_REPORT_FROM:-}'
+      DRAWLY_REPORT_TO: '${DRAWLY_REPORT_TO:-}'
     expose:
       - '3000'
+    # Coolify 4.5 generates stable router IDs from the resource UUID and the
+    # service-name hash. Override this UUID when moving to a different resource.
+    # These labels affect Drawly only; the shared proxy stays untouched.
+    labels:
+      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.accesslogs=false'
+      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.accesslogs=false'
+      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.metrics=false'
+      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.metrics=false'
+      - 'traefik.http.routers.http-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.tracing=false'
+      - 'traefik.http.routers.https-0-${DRAWLY_COOLIFY_RESOURCE_UUID:-jwnlsnxflt0txdz3skf3b5by}-collaboration-11a7.observability.tracing=false'
+    logging:
+      driver: local
+      options:
+        max-size: '10m'
+        max-file: '3'
     volumes:
       - drawly-collaboration:/data
     mem_limit: 512m

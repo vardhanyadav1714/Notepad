@@ -56,7 +56,7 @@ class LiveCollaborationDeviceTest {
             }
         }
         try {
-            main {model.setDocumentTitle("Isolated live collaboration QA");model.joinCollaborationRoom(room!!)}
+            main {model.setDocumentTitle("Isolated live collaboration QA");model.approveSharingForSession();model.joinCollaborationRoom(room!!)}
             val deadline=System.currentTimeMillis()+300_000
             var finished=false
             while(!finished && System.currentTimeMillis()<deadline) {
@@ -86,10 +86,11 @@ class LiveCollaborationDeviceTest {
                                 model.endStroke()
                             }
                             "leave" -> model.leaveCollaborationRoom()
-                            "join" -> model.joinCollaborationRoom(room!!)
+                            "join" -> {model.approveSharingForSession();model.joinCollaborationRoom(room!!)}
                             "freshJoin" -> {
                                 model.leaveCollaborationRoom()
                                 model.restoreSession(`in`.innovaticshub.notepad.ui.canvas.storage.SavedSession(emptyList(),null,null))
+                                model.approveSharingForSession()
                                 model.joinCollaborationRoom(room!!)
                             }
                             "interrupt" -> {disconnected.set(true);socket?.cancel()}

@@ -344,6 +344,15 @@ export class CanvasRoom {
   }
 
   private async storeStroke(stroke: RemoteStroke): Promise<void> {
+    // Optional standalone-host adapter: append a single durable stroke instead
+    // of reading and rewriting a canvas. Cloudflare retains its existing path.
+    const incremental = this.state.storage as DurableObjectStorage & {
+      appendInk?: (stroke: RemoteStroke) => Promise<void>;
+    };
+    if (incremental.appendInk) {
+      await incremental.appendInk(stroke);
+      return;
+    }
     await this.state.storage.transaction(async storage => {
       const strokes = await this.getStoredStrokes(storage);
       if (strokes.some(stored => stored.id === stroke.id)) return;

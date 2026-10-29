@@ -76,6 +76,7 @@ internal fun RoomMemberList(model: DrawingViewModel) {
                         else -> "In the room"
                     }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
+                if (!member.isSelf) TextButton(onClick = model::blockCollaborationRoom) { Text("Block & leave") }
             }
         }
         Text("Artists use temporary labels and colours. No profile photo or real name is needed.",

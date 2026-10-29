@@ -1,8 +1,10 @@
+# Only the collaboration build inputs may enter its image build context.
 **
 !collaboration-server/
+!collaboration-server/Dockerfile
 !collaboration-server/package.json
 !collaboration-server/package-lock.json
-!collaboration-server/server.mjs
+!collaboration-server/*.mjs
 !cloudflare/
 !cloudflare/src/
 !cloudflare/src/**

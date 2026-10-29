@@ -1,7 +1,7 @@
 param(
     [switch]$Preview,
-    [int]$VersionCode = 32,
-    [string]$VersionName = '2.4.2',
+    [int]$VersionCode = 33,
+    [string]$VersionName = '2.4.3',
     [string]$JavaHome = 'C:\Program Files\Android\Android Studio\jbr',
     [switch]$Online
 )
