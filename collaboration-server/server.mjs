@@ -12,10 +12,10 @@ const IDLE_TTL = 86_400_000;
 /** The Worker and standalone host still share the same wire protocol. */
 export function createCollaborationServer({ databasePath = './data/rooms.sqlite', publicOrigin = 'http://localhost:3000', maxRooms = 250, maxStorageBytes, maxStoredRooms, idleTtlMs = IDLE_TTL, maintenanceMs = 30_000, trustProxy = false, legalApproved = false,
   developerName = 'Innovatix Hub', supportEmail = '', backupRetentionDays, logRetentionDays,
-  mail = {} } = {}) {
+  mail = {}, onStorageFailure } = {}) {
   const origin = new URL(publicOrigin);
   if (!['http:', 'https:'].includes(origin.protocol) || origin.pathname !== '/' || origin.username || origin.password || origin.search || origin.hash) throw Error('PUBLIC_ORIGIN must be an HTTP(S) origin');
-  const store = new RoomStore({ databasePath: databasePath === ':memory:' ? databasePath : resolve(databasePath), maxStorageBytes, maxStoredRooms, idleTtlMs });
+  const store = new RoomStore({ databasePath: databasePath === ':memory:' ? databasePath : resolve(databasePath), maxStorageBytes, maxStoredRooms, idleTtlMs, onFailure: onStorageFailure });
   const reportMailer = createReportMailer({ store, ...mail });
   const sharingAvailable = legalApproved && Number.isInteger(backupRetentionDays) && backupRetentionDays >= 0 && backupRetentionDays <= 365 &&
     Number.isInteger(logRetentionDays) && logRetentionDays >= 0 && logRetentionDays <= 365 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(supportEmail) && developerName.trim().length > 0;
@@ -285,7 +285,8 @@ if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1]
     legalApproved: process.env.DRAWLY_LEGAL_APPROVED === '1', developerName: process.env.DRAWLY_DEVELOPER_NAME,
     supportEmail: process.env.DRAWLY_SUPPORT_EMAIL, backupRetentionDays: retention('DRAWLY_BACKUP_RETENTION_DAYS'),
     logRetentionDays: retention('DRAWLY_LOG_RETENTION_DAYS'),
-    mail: { apiKey: process.env.RESEND_API_KEY, from: process.env.DRAWLY_REPORT_FROM, to: process.env.DRAWLY_REPORT_TO } });
+    mail: { apiKey: process.env.RESEND_API_KEY, from: process.env.DRAWLY_REPORT_FROM, to: process.env.DRAWLY_REPORT_TO },
+    onStorageFailure: () => { console.error('Drawly storage failed; restarting service'); process.exit(1); } });
   app.server.listen(port, '0.0.0.0', () => console.log(`Drawly collaboration listening on port ${port}`));
   for (const signal of ['SIGTERM', 'SIGINT']) process.once(signal, () => app.close().then(() => process.exit(0)));
 }

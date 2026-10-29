@@ -2,13 +2,14 @@ import { Worker } from 'node:worker_threads';
 
 /** Only this worker owns SQLite. Socket handling never waits on synchronous disk IO. */
 export class RoomStore {
-  constructor(options) {
+  constructor({ onFailure, ...options }) {
     this.worker = new Worker(new URL('./storage-worker.mjs', import.meta.url), {
       workerData: options, resourceLimits: { maxOldGenerationSizeMb: 96, maxYoungGenerationSizeMb: 16 }
     });
     this.pending = new Map();
     this.sequence = 0;
     this.failed = null;
+    this.closing = false;
     this.worker.on('message', ({ id, result, error }) => {
       const request = this.pending.get(id);
       if (!request) return;
@@ -17,12 +18,14 @@ export class RoomStore {
       else request.resolve(result);
     });
     const fail = () => {
+      if (this.failed) return;
       this.failed = new Error('Room storage unavailable');
       for (const request of this.pending.values()) request.reject(this.failed);
       this.pending.clear();
+      if (!this.closing) onFailure?.();
     };
     this.worker.on('error', fail);
-    this.worker.on('exit', code => { if (code !== 0 || this.pending.size) fail(); });
+    this.worker.on('exit', () => { if (!this.closing || this.pending.size) fail(); });
     this.ready = this.call('ready');
     // Callers also await ready; prevent an unhandled rejection during startup.
     this.ready.catch(() => {});
@@ -37,6 +40,7 @@ export class RoomStore {
     });
   }
   async close() {
+    this.closing = true;
     try { await this.call('close'); } finally { await this.worker.terminate(); }
   }
 }
