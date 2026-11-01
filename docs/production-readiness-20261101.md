@@ -2,7 +2,7 @@
 
 ## Decision and scope
 
-The new candidate is **2.4.4 / version code34**, package `in.innovaticshub.notepad`, origin `https://drawly.in`, target API36 and minimum API24. This follows the [29 October engineering and deployment record](production-readiness-20261029.md). Engineering checks do not guarantee Play approval or ongoing moderation. The old `drawly.smartattendance.xyz` service and unrelated Coolify applications must remain unchanged.
+The new candidate is **2.4.4 / version code34**, package `in.innovaticshub.notepad`, origin `https://drawly.in`, target API36 and minimum API24. Its backend is deployed and the signed bundle is saved in an unpublished Play production draft. This follows the [29 October engineering and deployment record](production-readiness-20261029.md). Engineering checks do not guarantee Play approval or ongoing moderation. The old `drawly.smartattendance.xyz` service and unrelated Coolify applications remain unchanged. Production version18 remains live on Play.
 
 ## Changes
 
@@ -26,7 +26,8 @@ The privacy policy distinguishes new controls from production version18 and disc
 | Signing | APK signature verified. Upload/release certificate SHA256 `b942a3f9a67f8ba6f2b2ad1dfc120832ef5d4ecf5aaf67877d0ebd33ea8ea781`, matching the original published bundle's upload signer. Play-generated APKs use the separate Play app-signing certificate. |
 | Alignment | Actual code34 APK passed16KiB ZIP alignment; all six arm64/x86_64 native libraries have ELF LOAD alignment at least16KiB. Not a16KiB-device runtime acceptance check. |
 | Bounded local traffic |100 clients, ten authenticated managed rooms,3,000 strokes/30,000 deliveries over30 rounds with transient updates: all delivered, p50≈95.84ms, p95≈229.21ms, maximum≈265.25ms, RSS≈159MiB, queues drained, no protocol errors.25 reconnects received complete snapshots; all ten fixture rooms expired. Loopback only, without the production CPU quota or internet/storage latency; thirty seconds is not a sustained soak or a capacity guarantee. |
-| Daily backup | Latest approved B2 archive retrieved on1Nov; SQLite `quick_check=ok`, normalized schema present, zero live room rows. Archive SHA256 `6620a528c5c19cff58e9c39d4718d6aedae20c6939320b331e171a31f61af5b2`. Isolated restored payload files removed. Backup timing/retention and human report review remain ongoing duties. |
+| Daily backup | A fresh post-deployment B2 archive was taken on1Nov at16:22UTC and restored in isolation. SQLite `quick_check=ok`, all four normalized tables and the participant-report column present, zero live room rows. Archive SHA256 `a28c7dc90d85e162a66c847fe6d6a3f01421b435da029dd5d743ecc50a6810f6`. Restored payload files removed. Approved schedule remains daily with seven copies/seven-day retention and a short Drawly-only pause; backup monitoring and human report review remain ongoing duties. |
+| Public deployment | Config advertises member controls2; policy matches34. Authenticated drawing, canonical attribution, rejoin snapshots, both blocking join orders and unauthenticated snapshot rejection passed. All three participant-control fixtures were deleted and their invitations revoked. Additional presence, preview and owner-deletion checks passed; the old endpoint accepted a no-ink join/ping. |
 
 ## Artifact inspection and Play preparation
 
@@ -36,7 +37,7 @@ The original bundle SHA256 is `fcb44a453c9c6fb0251448aec38659f5268dff8880686e3e5
 
 Closed Alpha still offers version2/name2.0 to selected testers; its original bundle was also downloaded. Its12,158 class definitions have no Firebase/Analytics/ML Kit or OkHttp namespaces, and its APK has no Internet permission. AAB SHA256 `bf17a92d93e2b18c16e403708bdccc2893960cd3e8fb248afb0f388b379da53f`. The Alpha29 release is not yet sent for review; it was not discarded or submitted. Version30 is on internal testing, which Google's Data safety guidance treats separately from distributed closed/open/production artifacts.
 
-A new Data safety draft is prepared against production18, closed2 and candidate34: collection Yes; encrypted in transit; no account creation/external login; deletion-request link `https://drawly.in/privacy#deletion`. Four optional, non-ephemeral categories are selected:
+A new Data safety declaration is saved in Publishing overview against production18, closed2 and candidate34: collection Yes; encrypted in transit; no account creation/external login; deletion-request link `https://drawly.in/privacy#deletion`. Four optional, non-ephemeral categories are selected:
 
 | Category | Purpose in prepared draft |
 | --- | --- |
@@ -47,7 +48,14 @@ A new Data safety draft is prepared against production18, closed2 and candidate3
 
 The draft uses Google's exemptions for provider processing and user-initiated/prominently disclosed transfers when classifying sharing. That does not mean no information reaches Google, infrastructure providers or invited participants: these transfers remain collected/disclosed and are explained in the app and policy. Review the exact draft before submitting; do not copy the old blanket no-collection answer. Local-only audio, photos, notes and PDFs are not declared as uploaded by collaboration.
 
-At writing the draft is not published. Privacy URL, IARC interaction answers and reviewer access instructions still need final reconciliation with the same candidate. Target ages remain all six groups, including children; no audience narrowing or invented age analytics was introduced. API36 is verified in the artifact; building it alone does not clear the existing Console warning.
+The following app-specific declarations are saved but have not been submitted or published:
+
+- Privacy URL: `https://drawly.in/privacy`; the public page is live and includes deletion instructions.
+- Data safety: the four categories and purposes above, with deletion URL and encryption answers preserved on reopening.
+- IARC: a new questionnaire acknowledging user interaction, participant reporting/blocking and invited sharing. No claim of live chat moderation. The calculated summary is Everyone / PEGI3 / Rated3+, with Users Interact. Contact: `support@drawly.in`.
+- Reviewer access: restricted optional features are declared. Instructions explain Android device lock, setting a reviewer-chosen family PIN, approval/disclosure, two-device pairing, reporting/blocking and ending a room. No universal PIN, account or paid access exists.
+
+Target ages remain all six groups, including children; the Families commitment is preserved. No audience narrowing or invented age analytics was introduced. Device PIN approval is a control, not independent proof of age or jurisdiction-specific parental consent.
 
 ## Artifacts and rollout tracking
 
@@ -55,10 +63,16 @@ At writing the draft is not published. Privacy URL, IARC interaction answers and
 
 `app/build/outputs/drawly-in/Drawly-2.4.4-drawly-in-release.aab`: SHA256 `4c4b116872d54a638becb38f4811f51cfc7b4d884e7945606f584b71be08a6e1`.
 
-Implementation deployment and final public smoke are pending at writing. Local ignored evidence is in `.ui-review/production-readiness-20261029/`; no credentials or private drawings belong in this document. A current14-resource/proxy baseline was captured before rollout to distinguish this change from earlier unrelated app updates.
+Implementation commit **`6c983162957e2a2d0756b875e7e42069d4510875`** is pushed to `drawly-collaboration` and deployed only to the Drawly Coolify application. Deployment `vpzmcw9phhvep5rfyy0gguif` finished successfully at16:19:06UTC on1November. Post-backup checks at16:28:36UTC returned200 for health, config, privacy and terms. All13 other resource health states matched the immediately preceding baseline, including an already-exited unrelated resource. Shared proxy configuration was unchanged; the six Drawly route observability settings remained scoped correctly. This does not assert that all unrelated applications are healthy.
+
+Play accepted the exact signed code34 bundle in the existing, previously empty production draft (release6), with release name `2.4.4 (34)` and English release notes. The preview identifies min API24, target API36, four ABIs and **zero lost supported devices**. It reports one non-blocking warning: native debug symbols were not uploaded. `SYMBOL_TABLE` is already configured; stripped prebuilt native dependencies do not supply useful symbols to reconstruct. This limits native crash diagnosis and is not evidence of a runtime failure. The preview showed no blocking errors; it is not a Play approval or pre-launch report.
+
+The production release remains **Save-as-draft**, not queued for rollout. No rollout percentage was committed. Publishing overview reports five unrelated/policy changes ready to send, with **managed publishing OFF**. Its pending queue includes the pre-existing **Alpha29 full rollout and EvaTesters list change**, plus the newly saved rating, privacy and Data safety entries; restricted reviewer instructions are also saved. Those earlier items were preserved. Do not use Submit all without reviewing them: approval can publish automatically while managed publishing is off. No Submit-for-review or Start-rollout action was taken.
+
+Local ignored evidence is in `.ui-review/production-readiness-20261029/`; no credentials or private drawings belong in this document. This final documentation update does not require another backend deployment.
 
 ## Remaining acceptance
 
-Review the final Play declarations and IARC rating with the actual release before submission. Test a Play-delivered upgrade from18, physical phone/tablet and minimum-supported-API behavior, accessibility and process recovery. Run a deployment-sized sustained soak before promising higher concurrency. Keep monitoring health, disk, backups, notification failures and the human moderation backlog. The device PIN supplies an adult control; it does not prove legally sufficient parental consent in every jurisdiction. These engineering checks cannot certify every legal requirement.
+Review the final Play declarations, IARC rating and pre-existing Alpha29/tester changes before submission. Test a Play-delivered upgrade from18, physical phone/tablet and minimum-supported-API behavior, accessibility and process recovery. The local APK uses the upload key and cannot replace a Play app-signing-key installation directly. Run a deployment-sized sustained soak before promising higher concurrency; the local100-client result does not establish the capacity of the1CPU/512MiB live container. Keep monitoring health, disk, backups, notification failures and the daily human moderation backlog. Owner end and idle expiry delete live room data; seven-day backups and local copies have separate lifecycles, and SQLite logical deletion is not secure physical erasure. These engineering checks cannot certify every legal requirement or guarantee Play approval.
 
 Sources checked: [Google Data safety](https://support.google.com/googleplay/android-developer/answer/10787469), [Families](https://support.google.com/googleplay/android-developer/answer/9893335), [UGC](https://support.google.com/googleplay/android-developer/answer/9876937), [ML Kit privacy](https://developers.google.com/ml-kit/terms), [SDK disclosures](https://developers.google.com/ml-kit/android-data-disclosure).
