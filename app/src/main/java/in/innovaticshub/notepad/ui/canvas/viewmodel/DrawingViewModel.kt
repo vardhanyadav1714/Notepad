@@ -129,13 +129,24 @@ class DrawingViewModel(private val collaborationRepository:CollaborationReposito
             }.onFailure { error -> _uiState.update { it.copy(collaborationStatus = error.message) } }
         }
     }
-    fun reportCollaborationRoom(reason: String) {
+    fun blockCollaborationParticipant(memberId: String) {
+        val room = _uiState.value.collaborationRoomCode ?: return
+        leaveCollaborationRoom()
+        _uiState.update { it.copy(isCollaborationBusy = true) }
+        viewModelScope.launch {
+            runCatching { collaborationRepository.blockParticipant(room, memberId) }.onSuccess {
+                _uiState.update { it.copy(collaborationStatus = "Artist and room blocked on this device. New invites cannot connect you with this installation.") }
+            }.onFailure { error -> _uiState.update { it.copy(collaborationStatus = error.message) } }
+            _uiState.update { it.copy(isCollaborationBusy = false) }
+        }
+    }
+    fun reportCollaborationRoom(reason: String, memberId: String? = null) {
         val room = _uiState.value.collaborationRoomCode ?: return
         // A child can report or stop sharing without a PIN. No message or email
         // address is requested, and a report is acknowledged only after storage.
         pauseCollaboration()
         viewModelScope.launch {
-            runCatching { collaborationRepository.reportRoom(room, reason) }.onSuccess { report ->
+            runCatching { collaborationRepository.reportRoom(room, reason, memberId) }.onSuccess { report ->
                 _uiState.update { it.copy(collaborationStatus = "Report saved: $report. Sharing is paused. Ask an adult for help.") }
             }.onFailure { _uiState.update { it.copy(collaborationStatus = "Report was not saved. Sharing is paused; retry or ask an adult to contact support.") } }
         }

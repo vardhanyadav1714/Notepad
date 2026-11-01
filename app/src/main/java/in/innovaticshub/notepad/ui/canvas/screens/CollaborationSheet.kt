@@ -24,6 +24,7 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
     var pendingApproval by remember { mutableStateOf<(() -> Unit)?>(null) }
     var confirmingEnd by remember { mutableStateOf(false) }
     var reporting by remember { mutableStateOf(false) }
+    var reportedMember by remember { mutableStateOf<`in`.innovaticshub.notepad.ui.canvas.collab.RoomMember?>(null) }
     var localError by remember { mutableStateOf<String?>(null) }
     val safety = remember { `in`.innovaticshub.notepad.ui.canvas.collab.SharingSafetyStore(context) }
     val scope = rememberCoroutineScope()
@@ -36,12 +37,12 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
         val room=state.collaborationRoomCode
         if(room!=null) {
             Text(if(state.collaborationConnected) "Connected" else "Not connected",color=MaterialTheme.colorScheme.primary)
-            RoomMemberList(model)
+            RoomMemberList(model, onReport = { reportedMember = it; reporting = true }, onBlock = { model.blockCollaborationParticipant(it.id) })
             SelectionContainer {Text(room,style=MaterialTheme.typography.headlineSmall)}
             Button(onClick={context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {type="text/plain";putExtra(Intent.EXTRA_TEXT,"Join my Drawly canvas: ${`in`.innovaticshub.notepad.ui.canvas.collab.CollaborationEndpoint.shareLink(room)}")},"Share collaboration invite"))}) {Text("Share invite link")}
             if(!state.collaborationConnected) OutlinedButton(onClick={approve {model.joinCollaborationRoom(room)}},enabled=!state.isCollaborationBusy) {Text("Approve and connect")}
             TextButton(onClick=model::leaveCollaborationRoom) {Text("Leave room")}
-            OutlinedButton(onClick={reporting=true}) { Text("Report unsafe content or an artist") }
+            OutlinedButton(onClick={reportedMember=null;reporting=true}) { Text("Report unsafe content or an artist") }
             TextButton(onClick=model::blockCollaborationRoom) { Text("Block this room and leave") }
             if (model.canEndCollaboration()) TextButton(onClick={confirmingEnd=true}) { Text("End room and delete shared ink") }
         } else {
@@ -54,6 +55,7 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
         Text("Draw with people you know. Everyone with the invite link can join and see shared ink. Do not draw your name, address, school, phone number or other personal details.",
             style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
         Text("Leaving keeps shared ink until the room expires, normally after 24 hours without activity. Ending a room deletes its server copy; others may have saved their own copies. Blocking prevents this device from joining this room again.",style=MaterialTheme.typography.bodySmall)
+        Text("Use an artist's Safety menu to report or block them. Blocking also leaves and blocks this room. It stops new connections with that installation in rooms using the latest controls. Reinstalling the app creates a new identity, so keep invites private.",style=MaterialTheme.typography.bodySmall)
         TextButton(onClick={model.pauseCollaboration(); scope.launch {
             runCatching { withContext(Dispatchers.IO) {safety.setEnabled(false)} }
                 .onFailure {localError="Sharing is paused, but the setting could not be saved. Please retry."}
@@ -64,11 +66,12 @@ internal fun CollaborationSheet(model:DrawingViewModel) {
         text={Text("The shared server copy will be deleted and this invite will stop working. Local copies on participants' devices remain.")},
         confirmButton={TextButton(onClick={confirmingEnd=false;approve(model::endCollaborationRoom)}) {Text("Approve deletion")}},
         dismissButton={TextButton(onClick={confirmingEnd=false}) {Text("Cancel")}})
-    if (reporting) AlertDialog(onDismissRequest={reporting=false},title={Text("Report and pause sharing")},
+    if (reporting) AlertDialog(onDismissRequest={reporting=false},title={Text(reportedMember?.let { "Report ${it.label}" } ?: "Report and pause sharing")},
         text={Column {
             Text("Choose what happened in this room. A report sends its room reference and reason to Drawly for review, without asking for your name or email. Ask an adult for help. This is not an emergency service.")
+            if (reportedMember != null) Text("This report also includes the artist's anonymous participant reference.")
             listOf("Unsafe or sexual content" to "unsafe_content", "Bullying, threats or an unsafe artist" to "bullying", "Personal information" to "personal_information", "Other unsafe behavior" to "other").forEach { (label, reason) ->
-                TextButton(onClick={reporting=false;model.reportCollaborationRoom(reason)}) {Text(label)}
+                TextButton(onClick={reporting=false;model.reportCollaborationRoom(reason, reportedMember?.id?.takeIf { it.startsWith("p-") })}) {Text(label)}
             }
         }},confirmButton={TextButton(onClick={reporting=false}) {Text("Cancel")}})
 }

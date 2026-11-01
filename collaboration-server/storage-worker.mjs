@@ -43,6 +43,9 @@ db.exec(`PRAGMA auto_vacuum=INCREMENTAL; PRAGMA journal_mode=WAL; PRAGMA synchro
   CREATE TRIGGER IF NOT EXISTS document_delete AFTER DELETE ON room_documents BEGIN
     UPDATE storage_usage SET bytes=bytes-OLD.bytes WHERE id=1; END;`);
 const sql = statement => db.prepare(statement);
+if (!sql('PRAGMA table_info(reports)').all().some(column => column.name === 'participant_id')) {
+  db.exec('ALTER TABLE reports ADD COLUMN participant_id TEXT');
+}
 function transaction(operation) {
   db.exec('BEGIN IMMEDIATE');
   try { const value = operation(); db.exec('COMMIT'); return value; }
@@ -129,7 +132,7 @@ const operations = {
   }); },
   alarm({ id, at }) { sql('UPDATE rooms SET expires_at=? WHERE id=?').run(at, id); return true; },
   remove({ id }) { sql('DELETE FROM rooms WHERE id=?').run(id); return true; },
-  create() { return transaction(() => {
+  create({ memberControls = 1 } = {}) { return transaction(() => {
     if (sql('SELECT COUNT(*) AS count FROM rooms').get().count >= maxStoredRooms) limit();
     checkBudget(2);
     const id = 'r-' + randomBytes(24).toString('hex');
@@ -137,6 +140,7 @@ const operations = {
     sql("INSERT INTO rooms VALUES(?,'{}',?)").run(id, Date.now() + TTL);
     sql('INSERT INTO room_documents(room_id) VALUES(?)').run(id);
     sql('INSERT INTO room_owners VALUES(?,?)').run(id, hash(ownerToken));
+    if (memberControls === 2) putValue(id, 'memberControls', 2);
     return { roomId: id, ownerToken };
   }); },
   end({ id, token }) { return transaction(() => {
@@ -147,13 +151,14 @@ const operations = {
     sql('DELETE FROM rooms WHERE id=?').run(id);
     return true;
   }); },
-  report({ id, reason }) { return transaction(() => {
+  report({ id, reason, memberId }) { return transaction(() => {
     ensureRoom(id, false);
     if (!['unsafe_content', 'bullying', 'personal_information', 'other'].includes(reason)) throw new Error('Choose a report reason');
     if (sql('SELECT COUNT(*) AS count FROM reports').get().count >= 10_000) limit('Report queue is full; ask an adult to contact support');
     if (sql('SELECT COUNT(*) AS count FROM reports WHERE room_id=? AND created_at>?').get(id, Date.now() - 86_400_000).count >= 20) limit('Report limit reached for this room');
     const reportId = randomUUID();
-    sql('INSERT INTO reports(id,room_id,reason,created_at) VALUES(?,?,?,?)').run(reportId, id, reason, Date.now());
+    if (memberId !== undefined && !/^p-[a-f0-9]{64}$/.test(memberId)) throw new Error('Invalid participant reference');
+    sql('INSERT INTO reports(id,room_id,reason,created_at,participant_id) VALUES(?,?,?,?,?)').run(reportId, id, reason, Date.now(), memberId ?? null);
     sql('INSERT INTO report_mail(report_id) VALUES(?)').run(reportId);
     return { reportId };
   }); },
@@ -199,7 +204,7 @@ const operations = {
       inkBytes: sql('SELECT bytes FROM storage_usage WHERE id=1').get().bytes };
   }); },
   compact() { db.exec('PRAGMA wal_checkpoint(PASSIVE); PRAGMA incremental_vacuum(256)'); return true; },
-  listReports() { return sql("SELECT id,room_id,reason,created_at FROM reports WHERE status='open' ORDER BY created_at LIMIT 100").all(); },
+  listReports() { return sql("SELECT id,room_id,reason,created_at,participant_id FROM reports WHERE status='open' ORDER BY created_at LIMIT 100").all(); },
   reviewReport({ id }) {
     const report = sql('SELECT * FROM reports WHERE id=?').get(id);
     if (!report) throw new Error('Report not found');

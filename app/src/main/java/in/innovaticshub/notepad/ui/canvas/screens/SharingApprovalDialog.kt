@@ -58,6 +58,7 @@ internal fun SharingApprovalDialog(onDismiss: () -> Unit, onApproved: () -> Unit
                     Text("The SDK starts after approval and may continue handling diagnostics while this app process runs. No drawing room is joined by enabling recognition.")
                 } else {
                 Text("Shared ink is sent to Drawly's server and everyone with the invite. Draw only with people you know. Do not draw your name, address, school, phone number, passwords or other personal details.")
+                Text("Drawly uses an anonymous installation identifier to support artist blocking across rooms. Other participants can recognize that identifier in shared rooms. The installation secret stays private; block lists are saved on this device and sent securely to Drawly while connecting. Reinstalling creates a different identity. Use an artist's Safety menu to report or block them without a PIN.")
                 Text("Rooms normally expire after 24 hours without activity. Leaving does not delete shared ink. The room creator can end the room and delete its server copy. Others may keep their own copies.")
                 Text("Sharing rules: no sexual content, abuse, bullying, threats, illegal content or personal information. Use Report or Block and leave if something is unsafe. Text, pictures, audio and imported PDFs stay local.")
                 }

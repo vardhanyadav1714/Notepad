@@ -59,11 +59,12 @@ internal fun MemberAvatar(member: RoomMember, modifier: Modifier = Modifier, siz
 }
 
 @Composable
-internal fun RoomMemberList(model: DrawingViewModel) {
+internal fun RoomMemberList(model: DrawingViewModel, onReport: (RoomMember) -> Unit = {}, onBlock: (RoomMember) -> Unit = {}) {
     val presence by model.presence.collectAsState()
     if (presence.members.isNotEmpty()) {
         Text("In this room · ${presence.members.size}", style = MaterialTheme.typography.titleSmall)
         presence.members.forEach { member ->
+            var safetyMenu by remember(member.id) { mutableStateOf(false) }
             Row(Modifier.fillMaxWidth().testTag("room-member-${member.id}"),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MemberAvatar(member)
@@ -76,10 +77,17 @@ internal fun RoomMemberList(model: DrawingViewModel) {
                         else -> "In the room"
                     }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (!member.isSelf) TextButton(onClick = model::blockCollaborationRoom) { Text("Block & leave") }
+                if (!member.isSelf) Box {
+                    TextButton(onClick = { safetyMenu = true }) { Text("Safety") }
+                    DropdownMenu(expanded = safetyMenu, onDismissRequest = { safetyMenu = false }) {
+                        DropdownMenuItem(text = { Text("Report artist") }, onClick = { safetyMenu = false; onReport(member) })
+                        DropdownMenuItem(text = { Text("Block artist and leave") }, enabled = member.id.matches(Regex("p-[a-f0-9]{64}")),
+                            onClick = { safetyMenu = false; onBlock(member) })
+                    }
+                }
             }
         }
-        Text("Artists use temporary labels and colours. No profile photo or real name is needed.",
+        Text("Artists use anonymous labels and colours. No profile photo or real name is needed.",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }

@@ -8,6 +8,11 @@ import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocket } from 'ws';
+import { randomBytes } from 'node:crypto';
+
+const argument = process.argv[2] ?? '--rounds=8';
+if (process.argv.length > 3 || !/^--rounds=([1-9]|[12][0-9]|30)$/.test(argument)) throw Error('Use --rounds=1 through --rounds=30; local fixtures only');
+const rounds = Number(argument.split('=')[1]), expectedDeliveries = 100 * rounds * 10;
 
 const directory = await mkdtemp(join(tmpdir(), 'drawly-benchmark-'));
 const databasePath = join(directory, 'rooms.sqlite');
@@ -15,6 +20,7 @@ const child = fork(fileURLToPath(new URL('./host.mjs', import.meta.url)), [datab
   execArgv: ['--max-old-space-size=192'], windowsHide: true, stdio: ['ignore', 'ignore', 'pipe', 'ipc']
 });
 const messages = [], errors = [], sockets = [], sent = new Map(), latencies = [];
+const participantTokens = Array.from({ length: 100 }, () => randomBytes(32).toString('hex'));
 child.on('message', message => messages.push(message));
 child.stderr.on('data', data => { if (!String(data).includes('ExperimentalWarning')) errors.push('Server stderr'); });
 const watchdog = setTimeout(() => { child.kill(); }, 70_000);
@@ -25,11 +31,17 @@ async function until(check, timeout = 12_000) {
 }
 async function stats() { const before = messages.length; child.send({ type: 'stats' }); return until(() => messages.slice(before).find(x => x.type === 'stats')); }
 const report = { scope: 'Synthetic local loopback; no production CPU quota or network guarantee', clients: 100, rooms: 10, clientsPerRoom: 10,
-  rounds: 8, pointsPerStroke: 64, mainHeapMiB: 192, workerHeapMiB: 96 };
+  rounds, pointsPerStroke: 64, mainHeapMiB: 192, workerHeapMiB: 96, memberControls: 2 };
 try {
   const { base } = await until(() => messages.find(x => x.type === 'ready'));
+  const roomIds = [];
+  for (let i = 0; i < 10; i++) {
+    const response = await fetch(base + '/api/rooms', { method: 'POST', headers: { 'X-Drawly-Member-Controls': '2' } });
+    assert.equal(response.status, 201); roomIds.push((await response.json()).roomId);
+  }
   for (let start = 0; start < 100; start += 10) await Promise.all(Array.from({ length: 10 }, (_, offset) => new Promise((resolve, reject) => {
-    const id = start + offset, socket = new WebSocket(base.replace('http:', 'ws:') + '/ws/local-bench-' + Math.floor(id / 10));
+    const id = start + offset, socket = new WebSocket(base.replace('http:', 'ws:') + '/ws/' + roomIds[Math.floor(id / 10)],
+      { headers: { 'X-Drawly-Member-Controls': '2', 'X-Drawly-Participant': participantTokens[id] } });
     sockets.push(socket); socket.on('error', reject);
     socket.on('open', () => socket.send(JSON.stringify({ type: 'join', userId: 'bench-' + id })));
     socket.on('message', data => {
@@ -48,23 +60,34 @@ try {
     socket.send(JSON.stringify({ type: 'stroke_preview', stroke: ink(i, 'preview') }));
   }), 333);
   try {
-    for (let round = 0; round < 8; round++) {
+    for (let round = 0; round < rounds; round++) {
       const at = performance.now();
       sockets.forEach((socket, i) => { const stroke = ink(i, round); sent.set(stroke.id, performance.now()); socket.send(JSON.stringify({ type: 'stroke', stroke })); });
       await delay(Math.max(0, 1000 - (performance.now() - at)));
     }
   } finally { clearInterval(ephemeral); }
-  await until(() => latencies.length === 8000, 20_000);
+  await until(() => latencies.length === expectedDeliveries, 20_000);
   latencies.sort((a, b) => a - b);
-  Object.assign(report, { strokes: sent.size, expectedDeliveries: 8000, deliveries: latencies.length,
-    p50Ms: latencies[4000], p95Ms: latencies[7600], maxMs: latencies.at(-1), metrics: await stats(), protocolErrors: errors });
+  Object.assign(report, { strokes: sent.size, expectedDeliveries, deliveries: latencies.length,
+    p50Ms: latencies[Math.floor(latencies.length * .5)], p95Ms: latencies[Math.floor(latencies.length * .95)], maxMs: latencies.at(-1), metrics: await stats(), protocolErrors: errors });
+  await Promise.all(sockets.slice(0, 25).map(socket => new Promise(resolve => { socket.once('close', resolve); socket.close(1000, 'Local reconnect check'); })));
+  await Promise.all(Array.from({ length: 25 }, (_, id) => new Promise((resolve, reject) => {
+    const socket = new WebSocket(base.replace('http:', 'ws:') + '/ws/' + roomIds[Math.floor(id / 10)],
+      { headers: { 'X-Drawly-Member-Controls': '2', 'X-Drawly-Participant': participantTokens[id] } });
+    sockets[id] = socket; socket.on('error', reject);
+    socket.on('message', data => { const message = JSON.parse(String(data)); if (message.type === 'room_snapshot') {
+      if (message.strokes.length !== rounds * 10) reject(Error('Reconnect lost committed ink')); else resolve();
+    } });
+    socket.once('open', () => socket.send(JSON.stringify({ type: 'join', userId: 'ignored' })));
+  })));
+  report.reconnectedWithCompleteSnapshot = 25;
   sockets.forEach(socket => socket.close(1000, 'Local benchmark finished')); await delay(500);
   // This path belongs to the fresh local fixture, never the live data volume.
   const db = new DatabaseSync(databasePath); db.prepare('UPDATE rooms SET expires_at=?').run(Date.now() - 1); db.close();
   let after;
   for (let n = 0; n < 30; n++) { after = await stats(); if (after.rows === 0) break; await delay(100); }
   report.roomsAfterExpiry = after.rows;
-  report.passed = latencies.length === 8000 && errors.length === 0 && after.rows === 0;
+  report.passed = latencies.length === expectedDeliveries && errors.length === 0 && after.rows === 0;
   if (!report.passed) process.exitCode = 1;
 } catch (error) { report.passed = false; report.error = error.message; process.exitCode = 1; }
 finally {

@@ -35,7 +35,7 @@ class CollaborationNetworkTest {
             val message=JSONObject().put("type","presence").put("members",JSONArray(list.mapNotNull {members[it]})).toString()
             list.forEach {it.send(message)}
         }
-        val certificate=HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
+        val certificate=HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val trust=HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         init {
             val tls=HandshakeCertificates.Builder().heldCertificate(certificate).build()
@@ -94,7 +94,7 @@ class CollaborationNetworkTest {
                     })
                 }
             }
-            server.start()
+            server.start(java.net.InetAddress.getByAddress("127.0.0.1", byteArrayOf(127,0,0,1)), 0)
         }
         fun repository():CollaborationRepository {
             val client=OkHttpClient.Builder().sslSocketFactory(trust.sslSocketFactory(),trust.trustManager).build()

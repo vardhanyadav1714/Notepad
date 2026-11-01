@@ -39,6 +39,22 @@ class SharingSafetyStore(context: Context) {
         val blocked = preferences.getStringSet("blocked", emptySet()).orEmpty() + key(room)
         check(preferences.edit().putStringSet("blocked", blocked).commit())
     }
+    fun participantToken(): String = synchronized(IDENTITY_LOCK) {
+        preferences.getString("participant_secret", null)?.let { return@synchronized it }
+        val token = ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
+        check(preferences.edit().putString("participant_secret", token).commit())
+        token
+    }
+    fun participantId(): String = "p-" + MessageDigest.getInstance("SHA-256").digest(participantToken().toByteArray())
+        .joinToString("") { "%02x".format(it.toInt() and 255) }
+    fun blockedParticipants(): Set<String> = preferences.getStringSet("blocked_participants", emptySet()).orEmpty().toSet()
+    fun blockParticipant(room: String, memberId: String) {
+        require(memberId.matches(Regex("p-[a-f0-9]{64}"))) { "This artist uses older sharing controls. Block the room instead." }
+        val blocked = blockedParticipants() + memberId
+        check(blocked.size <= 128) { "The artist block list is full. Keep sharing disabled and ask an adult to contact support." }
+        check(preferences.edit().putStringSet("blocked_participants", blocked)
+            .putStringSet("blocked", preferences.getStringSet("blocked", emptySet()).orEmpty() + key(room)).commit())
+    }
     fun saveOwner(room: String, token: String) { check(preferences.edit().putString("owner_${key(room)}", token).commit()) }
     fun ownerToken(room: String): String? = preferences.getString("owner_${key(room)}", null)
     fun forgetOwner(room: String) { check(preferences.edit().remove("owner_${key(room)}").commit()) }
@@ -48,5 +64,5 @@ class SharingSafetyStore(context: Context) {
         val spec = PBEKeySpec(pin.toCharArray(), salt, 210_000, 256)
         return try { SecretKeyFactory.getInstance(algorithm).generateSecret(spec).encoded } finally { spec.clearPassword() }
     }
-    companion object { const val FILE = "drawly_sharing_safety" }
+    companion object { const val FILE = "drawly_sharing_safety"; private val IDENTITY_LOCK = Any() }
 }

@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { isIP } from 'node:net';
+import { createHash } from 'node:crypto';
 import { WebSocketServer, WebSocket } from 'ws';
 import { RoomStore } from './storage.mjs';
 import { legalPage } from './legal.mjs';
@@ -39,14 +40,15 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
   }
   function roomFor(id) {
     if (rooms.has(id)) return rooms.get(id);
-    const entry = { peers: new Set(), pending: 0, queued: 0, queuedBytes: 0, cacheBytes: 0, tail: Promise.resolve(), lastUsed: Date.now() };
+    const entry = { peers: new Set(), admissions: new Set(), authors: new Set(), memberControls: 1, pending: 0, queued: 0, queuedBytes: 0, cacheBytes: 0, tail: Promise.resolve(), lastUsed: Date.now() };
     let values, alarmAt = 0, touchedAt = 0;
     function reserve(bytes) {
       if (cachedBytes - entry.cacheBytes + bytes > 32 * 1024 * 1024) throw Error('Active canvas memory limit reached');
       cachedBytes += bytes - entry.cacheBytes; entry.cacheBytes = bytes;
     }
     const loaded = store.call('load', { id }).then(data => {
-      reserve(Buffer.byteLength(JSON.stringify(data.strokes ?? []))); values = data;
+      reserve(Buffer.byteLength(JSON.stringify(data.strokes ?? []))); values = data; entry.memberControls = data.memberControls === 2 ? 2 : 1;
+      entry.authors = new Set((data.strokes ?? []).map(stroke => stroke.userId));
     });
     loaded.catch(() => {});
     const storage = {
@@ -58,7 +60,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         const previous = entry.cacheBytes;
         reserve(previous + size);
         try {
-          if (await store.call('append', { id, stroke })) values.strokes.push(stroke);
+          if (await store.call('append', { id, stroke })) { values.strokes.push(stroke); entry.authors.add(stroke.userId); }
           else reserve(previous);
         } catch (error) { reserve(previous); throw error; }
         values.lastActiveAt = Date.now(); touchedAt = Date.now(); alarmAt = Date.now() + idleTtlMs;
@@ -73,7 +75,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         if (cachedBytes - entry.cacheBytes + bytes > 32 * 1024 * 1024) throw Error('Active canvas memory limit reached');
         const previous = entry.cacheBytes;
         if (key === 'strokes') reserve(bytes);
-        try { await store.call('put', { id, key, value }); values[key] = value; }
+        try { await store.call('put', { id, key, value }); values[key] = value; if (key === 'strokes') entry.authors = new Set(value.map(stroke => stroke.userId)); }
         catch (error) { if (key === 'strokes') reserve(previous); throw error; }
         touchedAt = now; alarmAt = now + idleTtlMs;
       },
@@ -86,7 +88,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
       },
       async deleteAll() { await store.call('remove', { id }); values = { strokes: [] }; reserve(0); }
     };
-    const state = { storage, acceptWebSocket: peer => entry.peers.add(peer),
+    const state = { storage, memberIdentity: peer => peer.memberIdentity, acceptWebSocket: peer => entry.peers.add(peer),
       getWebSockets: () => [...entry.peers].filter(peer => peer.raw.readyState === WebSocket.OPEN) };
     entry.protocol = new CanvasRoom(state, {}); entry.loaded = loaded;
     rooms.set(id, entry);
@@ -126,7 +128,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         jsonResponse(response, 200, { status: 'ok' }); return;
       }
       if (url.pathname === '/api/config' && request.method === 'GET') {
-        jsonResponse(response, 200, { sharingAvailable, privacyUrl: `${origin.origin}/privacy`, termsUrl: `${origin.origin}/terms` }); return;
+        jsonResponse(response, 200, { sharingAvailable, memberControls: 2, privacyUrl: `${origin.origin}/privacy`, termsUrl: `${origin.origin}/terms` }); return;
       }
       if (['/privacy', '/terms'].includes(url.pathname) && ['GET', 'HEAD'].includes(request.method)) {
         if (!sharingAvailable) { jsonResponse(response, 503, { error: 'Policy publication pending operator review' }); return; }
@@ -139,7 +141,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         if (!admitted(address(request), 5)) { jsonResponse(response, 429, { error: 'Please try later' }); return; }
         if (url.pathname === '/api/rooms' && request.method === 'POST') {
           if (!sharingAvailable) { jsonResponse(response, 503, { error: 'New sharing sessions are not available yet' }); return; }
-          const result = await store.call('create');
+          const result = await store.call('create', { memberControls: request.headers['x-drawly-member-controls'] === '2' ? 2 : 1 });
           jsonResponse(response, 201, { ...result, shareUrl: `${origin.origin}/r/${result.roomId}` }); return;
         }
         const match = /^\/api\/rooms\/([a-zA-Z0-9_-]{1,128})(\/reports)?$/.exec(url.pathname);
@@ -147,7 +149,7 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         const id = match[1];
         if (match[2] && request.method === 'POST') {
           const body = await readJson(request);
-          jsonResponse(response, 201, await store.call('report', { id, reason: body.reason })); return;
+          jsonResponse(response, 201, await store.call('report', { id, reason: body.reason, memberId: body.memberId })); return;
         }
         if (!match[2] && request.method === 'DELETE') {
           const token = request.headers.authorization?.replace(/^Bearer /, '') ?? '';
@@ -192,10 +194,25 @@ export function createCollaborationServer({ databasePath = './data/rooms.sqlite'
         reject(error.code === 'GONE' ? '410 Gone' : '503 Service Unavailable'); return;
       }
       if (socket.destroyed || entry.ended) { reject('410 Gone'); return; }
+      let identity;
+      if (entry.memberControls === 2) {
+        if (!sharingAvailable) { reject('503 Service Unavailable'); return; }
+        const token = request.headers['x-drawly-participant'];
+        const blocked = request.headers['x-drawly-blocked-members'] ?? '';
+        if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token) || typeof blocked !== 'string' || blocked.length > 8700) { reject('403 Forbidden'); return; }
+        const blockedIds = blocked ? blocked.split(',') : [];
+        if (blockedIds.length > 128 || blockedIds.some(id => !/^p-[a-f0-9]{64}$/.test(id))) { reject('400 Bad Request'); return; }
+        identity = { id: 'p-' + createHash('sha256').update(token).digest('hex'), blocked: new Set(blockedIds) };
+        // Reserve before the upgrade callback so simultaneous joins cannot
+        // pass each other. Tokens and block lists stay in connection memory.
+        if ([...identity.blocked].some(id => entry.authors.has(id)) || [...entry.admissions].some(other => identity.blocked.has(other.id) || other.blocked.has(identity.id))) { reject('403 Forbidden'); return; }
+        entry.admissions.add(identity);
+        socket.once('close', () => entry.admissions.delete(identity));
+      } else if (request.headers['x-drawly-member-controls'] === '2') { reject('409 Conflict'); return; }
       wss.handleUpgrade(request, socket, head, raw => {
         upgraded = true;
         let attachment = null, ended = false;
-        const peer = { raw,
+        const peer = { raw, memberIdentity: identity?.id,
           send(text) {
             if (raw.readyState !== WebSocket.OPEN) return;
             if (raw.bufferedAmount > 128_000 && /^\{"type":"(?:presence|presence_update|stroke_preview)"/.test(text)) return;

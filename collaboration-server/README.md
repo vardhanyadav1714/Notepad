@@ -78,7 +78,7 @@ Keep the live endpoint unchanged until a migration/rollout plan is agreed. Optio
 
 ## Reports and operator email
 
-Reports persist before acknowledgement and contain only a room reference, a selected reason, timestamp and status. They expire after 30 days and do not preserve an ink snapshot. An operator must review promptly while a room still exists. In the Drawly container:
+Reports persist before acknowledgement and contain a room reference, a selected reason, timestamp, status and an optional anonymous participant reference for artist reports. They expire after 30 days and do not preserve an ink snapshot. An operator must review promptly while a room still exists. In the Drawly container:
 
 ```sh
 node moderate.mjs list
@@ -89,6 +89,14 @@ node moderate.mjs mail-status
 ```
 
 `review` displays sensitive shared ink: use a private terminal, never copy it into logs or tickets. Removal disconnects existing participants on the next maintenance sweep (normally within 30 seconds). Review and act on reports regularly even if email is unavailable.
+
+### Participant blocking (2.4.4/code34)
+
+The new Android build requests `X-Drawly-Member-Controls: 2` when creating a room and requires `memberControls: 2` in the server configuration. Its WebSocket handshake sends a private random 256-bit installation token in `X-Drawly-Participant` and up to 128 locally blocked participant references in `X-Drawly-Blocked-Members`. These are headers, never invite URL parameters. Keep route access logs off and do not log headers. The server derives the public `p-<SHA256>` participant reference; clients cannot impersonate another reference by changing a join message. The derived reference appears in presence and committed-ink authorship, so the policy discloses that participants can recognize an installation across rooms. Raw installation tokens and block lists are not persisted by the server.
+
+An artist's Safety menu provides participant reporting or blocking without a PIN. Blocking disconnects immediately and persists both the participant and current room on the device. In safety-enabled rooms the server refuses admission in either join order when a participant has blocked the other installation, including concurrent upgrades; it also refuses a blocker access to saved ink attributed to that installation. The block list is resent on reconnect, and room controls survive restart. Clearing app data/reinstalling changes identity; this does not identify a real person across all devices. The block-list cap fails visibly rather than silently evicting earlier blocks.
+
+Older clients and their existing rooms retain their original protocol. New clients refuse invitations that lack these controls with HTTP409 and an instruction to create a new room. Do not deploy the old Cloudflare Worker to enable this adapter: only the standalone server supplies authenticated member identities. The old Play endpoint remains unchanged.
 
 Optional Resend alerts require `RESEND_API_KEY`, `DRAWLY_REPORT_FROM` and `DRAWLY_REPORT_TO` in this resource's runtime environment. Use a sending-only key restricted to Drawly. Never put it in Android or Git. A fixed recipient receives digests of at most 100 report IDs/categories, with no ink, invites or reporter contact information. The durable outbox groups notifications, permits at most 20 attempts per rolling day, uses stable provider idempotency keys and exponential retry, and stops after eight attempts or 23 hours. `mail-status` exposes pending/failed batches without message content. Mail failure does not remove a report. Provider/account quotas are shared with other apps and still need monitoring; notification limits do not cap report acceptance.
 
@@ -106,7 +114,7 @@ After normalized writes begin, do not blindly roll back to the old full-JSON ser
 
 ## Reproducible local load check
 
-`npm run benchmark` starts its own loopback server and fresh temporary database. It has no remote URL option. It uses 100 clients in ten rooms, 800 committed strokes, 8,000 expected deliveries, and concurrent transient updates. It reports delivery latency, CPU/RSS, queue sizes and logical expiry, then removes only its fixture. It does not impose the production CPU quota or emulate internet latency, production storage, reconnect bursts or a sustained soak. Run an isolated deployment-sized soak before advertising production concurrency.
+`npm run benchmark` starts its own loopback server and fresh temporary database. It has no remote URL option. It uses 100 authenticated clients in ten safety-enabled rooms, 800 committed strokes, 8,000 expected deliveries, concurrent transient updates, and 25 reconnects with complete-snapshot checks. `npm run benchmark -- --rounds=30` runs 30 bounded rounds (3,000 strokes/30,000 deliveries); accepted round counts are1–30. It reports latency, CPU/RSS, queues and expiry, then removes only its fixture. It does not impose the production CPU quota or emulate internet latency or production storage. Thirty seconds is not a sustained soak or a production capacity guarantee.
 
 ## Release gates
 

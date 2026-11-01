@@ -230,11 +230,13 @@ export class CanvasRoom {
 
     if (parsed.type === "join") {
       const previous = (sender.deserializeAttachment() as Connection | null) ?? {};
-      const id = previous.member?.id ?? crypto.randomUUID();
-      const serial = parseInt(id.replace(/-/g, "").slice(0, 6), 16);
+      const authenticated = (this.state as DurableObjectState & { memberIdentity?: (peer: WebSocket) => string | undefined }).memberIdentity?.(sender);
+      const id = previous.member?.id ?? authenticated ?? crypto.randomUUID();
+      const displayId = id.startsWith("p-") ? id.slice(2) : id;
+      const serial = parseInt(displayId.replace(/-/g, "").slice(0, 6), 16);
       const member: RoomMember = previous.member ?? { id,
-        userId: typeof parsed.userId === "string" ? parsed.userId.slice(0, 160) : "anonymous",
-        label: `Artist ${id.slice(0, 4).toUpperCase()}`, colorArgb: MEMBER_COLORS[serial % MEMBER_COLORS.length],
+        userId: authenticated ?? (typeof parsed.userId === "string" ? parsed.userId.slice(0, 160) : "anonymous"),
+        label: `Artist ${displayId.slice(0, 4).toUpperCase()}`, colorArgb: MEMBER_COLORS[serial % MEMBER_COLORS.length],
         activity: "idle", cursor: null, updatedAt: Date.now() };
       sender.serializeAttachment({ ...previous, member });
       sender.send(JSON.stringify({ type: "joined", memberId: id, capabilities: ["presence", "stroke_preview"], at: Date.now() }));
@@ -251,6 +253,8 @@ export class CanvasRoom {
       }
 
       try {
+        const authenticated = (this.state as DurableObjectState & { memberIdentity?: (peer: WebSocket) => string | undefined }).memberIdentity?.(sender);
+        if (authenticated) stroke.userId = authenticated;
         await this.storeStroke(stroke);
         this.touchRoom();
         this.broadcast({ type: "stroke", stroke, at: Date.now() });
@@ -270,6 +274,16 @@ export class CanvasRoom {
       }
 
       try {
+        const authenticated = (this.state as DurableObjectState & { memberIdentity?: (peer: WebSocket) => string | undefined }).memberIdentity?.(sender);
+        if (authenticated) {
+          const previous = new Map((await this.getStoredStrokes()).map(stroke => [stroke.id, stroke]));
+          state.userId = authenticated;
+          for (const stroke of state.strokes) {
+            const existing = previous.get(stroke.id);
+            const unchanged = existing && JSON.stringify({ ...stroke, userId: existing.userId }) === JSON.stringify(existing);
+            stroke.userId = unchanged ? existing.userId : authenticated;
+          }
+        }
         await this.storeCanvasState(state.strokes);
         this.touchRoom();
         this.broadcast({ type: "canvas_state", state, at: Date.now() });

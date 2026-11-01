@@ -2,7 +2,7 @@ import { createCollaborationServer } from '../server.mjs';
 import { monitorEventLoopDelay } from 'node:perf_hooks';
 import { DatabaseSync } from 'node:sqlite';
 const databasePath = process.argv[2];
-const app = createCollaborationServer({ databasePath, maintenanceMs: 1000 });
+const app = createCollaborationServer({ databasePath, maintenanceMs: 1000, legalApproved: true, supportEmail: 'support@drawly.example', backupRetentionDays: 0, logRetentionDays: 0 });
 await new Promise(resolve => app.server.listen(0, '127.0.0.1', resolve));
 const lag = monitorEventLoopDelay({ resolution: 10 }); lag.enable();
 let baseline = process.cpuUsage();

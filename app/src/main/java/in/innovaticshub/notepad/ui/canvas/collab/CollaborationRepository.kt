@@ -34,18 +34,23 @@ class CollaborationRepository(
     fun canEndRoom(room: String) = safety?.ownerToken(normalizeRoomCode(room)) != null
     fun isBlocked(room: String) = safety?.isBlocked(normalizeRoomCode(room)) == true
     suspend fun blockRoom(room: String) = withContext(Dispatchers.IO) { safety?.block(normalizeRoomCode(room)) ?: error("Sharing controls unavailable") }
+    suspend fun blockParticipant(room: String, memberId: String) = withContext(Dispatchers.IO) {
+        checkNotNull(safety) { "Sharing controls unavailable" }.blockParticipant(normalizeRoomCode(room), memberId)
+    }
     private fun api(request: Request): JSONObject = http.newCall(request).execute().use { response ->
         check(response.isSuccessful) { when(response.code) { 410 -> "This room has ended or expired."; 429 -> "Please wait before trying again."; else -> "Could not complete the request. Please retry." } }
         JSONObject(response.body?.string() ?: "{}")
     }
     private fun requireSharingAvailable() {
-        check(api(Request.Builder().url("$apiOrigin/api/config").build()).optBoolean("sharingAvailable", false)) {
+        val configuration = api(Request.Builder().url("$apiOrigin/api/config").build())
+        check(configuration.optBoolean("sharingAvailable", false) && configuration.optInt("memberControls") >= 2) {
             "Sharing is not available yet. You can keep drawing offline."
         }
+        checkNotNull(safety) { "Sharing controls unavailable" }.participantToken()
     }
-    suspend fun reportRoom(room: String, reason: String): String = withContext(Dispatchers.IO) {
+    suspend fun reportRoom(room: String, reason: String, memberId: String? = null): String = withContext(Dispatchers.IO) {
         api(Request.Builder().url("$apiOrigin/api/rooms/${normalizeRoomCode(room).urlEncoded()}/reports")
-            .post(JSONObject().put("reason", reason).toString().toRequestBody("application/json".toMediaType())).build()).getString("reportId")
+            .post(JSONObject().put("reason", reason).apply { if (memberId != null) put("memberId", memberId) }.toString().toRequestBody("application/json".toMediaType())).build()).getString("reportId")
     }
     suspend fun endRoom(room: String) = withContext(Dispatchers.IO) {
         val normalized = normalizeRoomCode(room)
@@ -64,7 +69,8 @@ class CollaborationRepository(
     private var liveUpdatesSupported = false
     private var currentMemberId: String? = null
 
-    val currentUserId: String = "local-${UUID.randomUUID()}"
+    private val legacyUserId = "local-${UUID.randomUUID()}"
+    val currentUserId: String get() = if (managedRooms) safety?.participantId() ?: legacyUserId else legacyUserId
 
     /** Best effort only: never queue cursors or unfinished ink while offline. */
     fun sendLiveUpdate(roomCode: String, cursor: MemberCursor?, activity: String, preview: RemoteStroke?, sendPreview: Boolean = true) {
@@ -82,7 +88,7 @@ class CollaborationRepository(
     suspend fun createRoom(): String {
         if (managedRooms) return withContext(Dispatchers.IO) {
             requireSharingAvailable()
-            val result = api(Request.Builder().url("$apiOrigin/api/rooms").post(ByteArray(0).toRequestBody()).build())
+            val result = api(Request.Builder().url("$apiOrigin/api/rooms").header("X-Drawly-Member-Controls", "2").post(ByteArray(0).toRequestBody()).build())
             val room = result.getString("roomId")
             check(room.matches(Regex("r-[a-f0-9]{48}"))) { "Room response not recognized." }
             val token = result.getString("ownerToken")
@@ -182,6 +188,12 @@ class CollaborationRepository(
         fun connect(): WebSocket {
             val request = Request.Builder()
                 .url("$websocketBaseUrl/${normalized.urlEncoded()}")
+                .apply { if (managedRooms) {
+                    val controls = checkNotNull(safety) { "Sharing controls unavailable" }
+                    header("X-Drawly-Member-Controls", "2")
+                    header("X-Drawly-Participant", controls.participantToken())
+                    header("X-Drawly-Blocked-Members", controls.blockedParticipants().sorted().joinToString(","))
+                } }
                 .build()
 
             return synchronized(socketLock) {client.newWebSocket(
@@ -237,7 +249,7 @@ class CollaborationRepository(
                         if (this@CollaborationRepository.webSocket == webSocket) {
                             socketOpen = false
                         }
-                        valid() && response?.code !in listOf(400, 401, 403, 404, 410, 429) && this@CollaborationRepository.webSocket==webSocket
+                        valid() && response?.code !in listOf(400, 401, 403, 404, 409, 410, 429) && this@CollaborationRepository.webSocket==webSocket
                     }
 
                     if (shouldReconnect) {
@@ -495,7 +507,9 @@ class CollaborationRepository(
     private fun Response.toCollaborationError(): Throwable {
         return when (code) {
             429 -> IllegalStateException("Sorry, this room is full. Please create a new room.")
-            403 -> IllegalStateException("You do not have permission to join this room.")
+            403 -> IllegalStateException("This connection is blocked by participant safety controls. Keep drawing offline or ask an adult to create a different room.")
+            409 -> IllegalStateException("This invite uses older sharing controls. Ask the creator to make a new room in the latest Drawly.")
+            410 -> IllegalStateException("This room has ended or expired.")
             404 -> IllegalStateException("This room could not be found.")
             else -> IllegalStateException("Could not connect to collaboration room. Please try again.")
         }

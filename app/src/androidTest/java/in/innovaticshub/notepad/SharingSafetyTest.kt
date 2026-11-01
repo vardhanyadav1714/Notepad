@@ -79,6 +79,16 @@ class SharingSafetyTest {
             assertFalse(reopened.verify("483927")) // cooldown cannot be bypassed with the correct PIN
             reopened.setEnabled(false)
             assertFalse(reopened.enabled)
+            val token = reopened.participantToken()
+            val identity = reopened.participantId()
+            assertTrue(token.matches(Regex("[a-f0-9]{64}")))
+            assertTrue(identity.matches(Regex("p-[a-f0-9]{64}")))
+            assertFalse(identity.contains(token))
+            assertEquals(token, SharingSafetyStore(context).participantToken())
+            val other = "p-" + "b".repeat(64)
+            reopened.blockParticipant("participant-blocked-room", other)
+            assertTrue(SharingSafetyStore(context).blockedParticipants().contains(other))
+            assertTrue(SharingSafetyStore(context).isBlocked("participant-blocked-room"))
         } finally {
             val editor = preferences.edit().clear()
             previous.forEach { (key, value) -> when(value) {

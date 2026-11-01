@@ -6,6 +6,7 @@ import { join, resolve, dirname, basename } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { DatabaseSync } from 'node:sqlite';
 import { WebSocket } from 'ws';
+import { createHash } from 'node:crypto';
 import { createCollaborationServer } from '../server.mjs';
 import { backupRooms } from '../backup.mjs';
 
@@ -25,8 +26,8 @@ async function removeTestDirectory(directory) {
   assert.ok(basename(target).startsWith('drawly-collaboration-test-'));
   await rm(target, { recursive: true, force: true });
 }
-async function connect(app, room = 'qa-room', userId = 'qa-user') {
-  const socket = new WebSocket(app.base.replace('http:', 'ws:') + '/ws/' + room);
+async function connect(app, room = 'qa-room', userId = 'qa-user', headers = {}) {
+  const socket = new WebSocket(app.base.replace('http:', 'ws:') + '/ws/' + room, { headers });
   const received = [];
   socket.on('message', data => received.push(JSON.parse(data.toString())));
   await new Promise((resolve, reject) => { socket.once('open', resolve); socket.once('error', reject); });
@@ -41,6 +42,91 @@ function ink(index = 1) {
     points: [{ x: 10, y: 20, pressure: .5 }, { x: 100, y: 120, pressure: .8 }],
     toolConfig: { type: 'PEN', style: 'SOLID', colorArgb: -16777216, baseWidth: 4, opacity: 1, usePressure: true } };
 }
+
+const participantId = token => 'p-' + createHash('sha256').update(token).digest('hex');
+const participantHeaders = (token, blocked = []) => ({ 'X-Drawly-Member-Controls': '2', 'X-Drawly-Participant': token, 'X-Drawly-Blocked-Members': blocked.join(',') });
+async function refused(app, room, headers = {}) {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(app.base.replace('http:', 'ws:') + '/ws/' + room, { headers });
+    socket.on('error', () => {});
+    socket.once('unexpected-response', (_request, response) => { response.resume(); socket.terminate(); resolve(response.statusCode); });
+    socket.once('open', () => { socket.terminate(); reject(Error('Unsafe connection was admitted')); });
+  });
+}
+async function safeRoom(app) {
+  const response = await fetch(app.base + '/api/rooms', { method: 'POST', headers: { 'X-Drawly-Member-Controls': '2' } });
+  assert.equal(response.status, 201); return (await response.json()).roomId;
+}
+
+test('participant controls authenticate identities and prevent blocked interactions in either join order', async () => {
+  const app = await start();
+  const tokenA = 'a'.repeat(64), tokenB = 'b'.repeat(64), idA = participantId(tokenA), idB = participantId(tokenB);
+  try {
+    const first = await safeRoom(app);
+    assert.equal(await refused(app, first), 403);
+    assert.equal(await refused(app, first, participantHeaders(tokenA, ['invalid'])), 400);
+    const a = await connect(app, first, 'forged-user', participantHeaders(tokenA, [idB]));
+    assert.equal(a.memberId, idA);
+    assert.equal(a.received.find(m => m.type === 'presence').members[0].userId, idA);
+    assert.equal(await refused(app, first, participantHeaders(tokenB)), 403);
+    a.send({ type: 'stroke', stroke: { ...ink(81), userId: idB } });
+    await until(() => a.received.some(m => m.type === 'stroke'));
+    assert.equal(a.received.find(m => m.type === 'stroke').stroke.userId, idA);
+    a.send({ type: 'canvas_state', state: { userId: idB, strokes: [{ ...ink(83), userId: idB }] } });
+    await until(() => a.received.some(m => m.type === 'canvas_state'));
+    const replaced = a.received.find(m => m.type === 'canvas_state').state;
+    assert.equal(replaced.userId, idA);
+    assert.equal(replaced.strokes[0].userId, idA);
+    const second = await safeRoom(app);
+    await connect(app, second, 'pretending-to-be-a', participantHeaders(tokenB));
+    assert.equal(await refused(app, second, participantHeaders(tokenA, [idB])), 403);
+    const legacy = (await (await fetch(app.base + '/api/rooms', { method: 'POST' })).json()).roomId;
+    assert.equal(await refused(app, legacy, participantHeaders(tokenA)), 409);
+    await connect(app, legacy); // previously issued invitations still work for older clients
+  } finally { await app.close(); }
+});
+
+test('participant controls survive restart, keep raw secrets off disk and retain a reported participant reference', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'drawly-collaboration-test-'));
+  const path = join(directory, 'rooms.sqlite'), token = 'f'.repeat(64), id = participantId(token);
+  let app = await start(path);
+  try {
+    const room = await safeRoom(app);
+    const artist = await connect(app, room, 'ignored', participantHeaders(token));
+    artist.send({ type: 'stroke', stroke: ink(82) });
+    await until(() => artist.received.some(m => m.type === 'stroke'));
+    const response = await fetch(`${app.base}/api/rooms/${room}/reports`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: 'bullying', memberId: id }) });
+    assert.equal(response.status, 201);
+    const { reportId } = await response.json();
+    await app.close(); app = await start(path);
+    assert.equal(await refused(app, room), 403);
+    assert.equal(await refused(app, room, participantHeaders('e'.repeat(64), [id])), 403); // blocked historical ink is not sent
+    const rejoined = await connect(app, room, 'different-untrusted-name', participantHeaders(token));
+    assert.equal(rejoined.memberId, id);
+    const db = new DatabaseSync(path);
+    assert.equal(db.prepare('SELECT participant_id FROM reports WHERE id=?').get(reportId).participant_id, id);
+    assert.equal(JSON.stringify(db.prepare('SELECT payload FROM room_ink').all()).includes(token), false);
+    assert.equal(JSON.stringify(db.prepare('SELECT value FROM room_values').all()).includes(token), false);
+    db.close();
+    await app.close(); app = await start(path, { legalApproved: false });
+    assert.equal(await refused(app, room, participantHeaders(token)), 503);
+  } finally { await app.close(); await removeTestDirectory(directory); }
+});
+
+test('simultaneous blocked participant handshakes cannot both enter a new room', async () => {
+  const app = await start();
+  try {
+    const room = await safeRoom(app), tokenA = '1'.repeat(64), tokenB = '2'.repeat(64);
+    const attempt = headers => new Promise(resolve => {
+      const socket = new WebSocket(app.base.replace('http:', 'ws:') + '/ws/' + room, { headers });
+      socket.on('error', () => {}); socket.once('open', () => resolve('open'));
+      socket.once('unexpected-response', (_request, response) => { response.resume(); socket.terminate(); resolve(response.statusCode); });
+    });
+    const results = await Promise.all([attempt(participantHeaders(tokenA, [participantId(tokenB)])), attempt(participantHeaders(tokenB))]);
+    assert.equal(results.filter(x => x === 'open').length, 1);
+    assert.equal(results.filter(x => x === 403).length, 1);
+  } finally { await app.close(); }
+});
 
 test('real paired clients see members and live ink; transient state is not saved', async () => {
   const app = await start();

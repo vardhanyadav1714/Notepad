@@ -18,12 +18,12 @@ import org.junit.Test
 class ManagedRoomApiTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
     private fun withServer(action: (MockWebServer, CollaborationRepository) -> Unit) {
-        val certificate = HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").build()
+        val certificate = HeldCertificate.Builder().commonName("localhost").addSubjectAlternativeName("localhost").addSubjectAlternativeName("127.0.0.1").build()
         val serverTls = HandshakeCertificates.Builder().heldCertificate(certificate).build()
         val trust = HandshakeCertificates.Builder().addTrustedCertificate(certificate.certificate).build()
         MockWebServer().use { server ->
             server.useHttps(serverTls.sslSocketFactory(), false)
-            server.start()
+            server.start(java.net.InetAddress.getByAddress("127.0.0.1", byteArrayOf(127,0,0,1)), 0)
             val client = OkHttpClient.Builder().sslSocketFactory(trust.sslSocketFactory(), trust.trustManager).build()
             val repo = CollaborationRepository(server.url("/ws").toString().replace("https:", "wss:"), client, managedRooms=true)
             repo.initializeSafety(context)
@@ -34,10 +34,14 @@ class ManagedRoomApiTest {
         val room = "r-" + "c".repeat(48)
         val token = "d".repeat(64)
         var deletionAuthorized = false
+        var participantControlsRequested = false
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse = when {
-                request.path == "/api/config" -> MockResponse().setBody("{\"sharingAvailable\":true}")
-                request.path == "/api/rooms" -> MockResponse().setResponseCode(201).setBody(JSONObject().put("roomId", room).put("ownerToken", token).toString())
+                request.path == "/api/config" -> MockResponse().setBody("{\"sharingAvailable\":true,\"memberControls\":2}")
+                request.path == "/api/rooms" -> {
+                    participantControlsRequested = request.getHeader("X-Drawly-Member-Controls") == "2"
+                    MockResponse().setResponseCode(201).setBody(JSONObject().put("roomId", room).put("ownerToken", token).toString())
+                }
                 request.path == "/api/rooms/$room/reports" -> MockResponse().setResponseCode(201).setBody("{\"reportId\":\"saved-report\"}")
                 request.method == "DELETE" && request.path == "/api/rooms/$room" -> {
                     deletionAuthorized = request.getHeader("Authorization") == "Bearer $token"
@@ -49,6 +53,7 @@ class ManagedRoomApiTest {
         try {
             runBlocking {
                 assertEquals(room, repo.createRoom())
+                assertTrue(participantControlsRequested)
                 assertTrue(repo.canEndRoom(room))
                 assertFalse(room.contains(token))
                 assertEquals("saved-report", repo.reportRoom(room, "bullying"))
